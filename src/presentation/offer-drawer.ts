@@ -1,6 +1,16 @@
-// Versão: 1.6
+// Versão: 1.7
+import {
+  CategoryScale,
+  Chart,
+  LinearScale,
+  LineController,
+  LineElement,
+  PointElement,
+  Tooltip,
+} from 'chart.js';
 import { placeOf } from '../data/places';
 import { airlineBookingLink } from '../domain/airline-link';
+import type { DestinationHistory } from '../domain/destination-history';
 import { priceFoundAt } from '../domain/offer';
 import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
@@ -8,6 +18,14 @@ import type { Airport, FlightOffer } from '../domain/types';
 import type { DestinationNotes } from '../infrastructure/destination-notes';
 import { googlePlaceSearchUrl, type PlaceSpot } from '../domain/place-notes';
 import { airlineLabel, formatFoundAt, formatGap, formatPrice, formatStops, formatWhen } from './format';
+
+Chart.register(LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip);
+
+const INK = '#efedf0';
+const MUTED = '#a39aa8';
+const GRID = 'rgba(239, 237, 240, 0.12)';
+const BARGAIN = '#ff5a1f';
+const ACCENT = '#c4b5fd';
 
 export interface OfferFavoriteAction {
   pinned: boolean;
@@ -21,6 +39,8 @@ export interface OfferDrawerState {
 }
 
 export class OfferDrawer {
+  private historyCharts: Chart[] = [];
+
   constructor(
     private readonly root: HTMLElement,
     private readonly onClose: () => void,
@@ -43,7 +63,9 @@ export class OfferDrawer {
     state: OfferDrawerState,
     notes: DestinationNotes,
     favorite: OfferFavoriteAction,
+    history: DestinationHistory,
   ): void {
+    this.clearHistory();
     this.root.hidden = false;
     const title = this.root.querySelector('#offer-drawer-title');
     const airport = airports.find((item) => item.iata === offer.destination);
@@ -52,12 +74,19 @@ export class OfferDrawer {
     const panel = this.root.querySelector('.offer-drawer__panel');
     if (!panel) return;
     const body = panel.querySelector('.offer-drawer__body');
-    if (!body) return;
-    body.replaceChildren(sheet(offer, airports, state, notes, favorite, this.onRefresh, this.onMap));
+    if (!(body instanceof HTMLElement)) return;
+    body.replaceChildren(sheet(offer, airports, state, notes, favorite, history, this.onRefresh, this.onMap));
+    this.historyCharts = mountHistoryCharts(body, history);
   }
 
   hide(): void {
+    this.clearHistory();
     this.root.hidden = true;
+  }
+
+  private clearHistory(): void {
+    for (const chart of this.historyCharts) chart.destroy();
+    this.historyCharts = [];
   }
 }
 
@@ -67,6 +96,7 @@ function sheet(
   state: OfferDrawerState,
   notes: DestinationNotes,
   favorite: OfferFavoriteAction,
+  history: DestinationHistory,
   onRefresh: () => void,
   onMap: (iata: string) => void,
 ): HTMLElement {
@@ -75,6 +105,7 @@ function sheet(
   wrap.append(
     routeBlock(offer, airports),
     priceBlock(offer),
+    historyBlock(history),
     facts(offer, airports),
     climateBlock(notes.climate),
     placesBlock(notes, airports.find((item) => item.iata === offer.destination), offer.destination),
@@ -284,6 +315,120 @@ function externalLink(href: string, label: string): HTMLAnchorElement | null {
   anchor.rel = 'noopener noreferrer';
   anchor.textContent = label;
   return anchor;
+}
+
+function historyBlock(history: DestinationHistory): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'history-charts';
+  const title = document.createElement('h3');
+  title.textContent = 'Histórico de preços';
+  const note = document.createElement('p');
+  note.className = 'help';
+  const count = history.count === 1 ? '1 preço guardado' : `${history.count} preços guardados`;
+  note.textContent = `${count} neste navegador para esta rota.`;
+  section.append(title, note);
+  if (history.departures.length > 0) section.append(chartCard('Menor preço por data de ida', 'departure'));
+  if (history.observations.length > 0) section.append(chartCard('Preço na data em que foi achado', 'found'));
+  return section;
+}
+
+function chartCard(title: string, kind: string): HTMLElement {
+  const card = document.createElement('article');
+  card.className = 'chart-card chart-card--history';
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  const canvas = document.createElement('canvas');
+  canvas.dataset.history = kind;
+  card.append(heading, canvas);
+  return card;
+}
+
+function mountHistoryCharts(body: HTMLElement, history: DestinationHistory): Chart[] {
+  const charts: Chart[] = [];
+  const departure = body.querySelector('canvas[data-history="departure"]');
+  const found = body.querySelector('canvas[data-history="found"]');
+  if (departure instanceof HTMLCanvasElement) {
+    charts.push(lineChart(
+      departure,
+      history.departures.map((point) => dayLabel(point.at)),
+      history.departures.map((point) => point.price),
+      history.currency,
+      history.departures.map((point) => fullDay(point.at)),
+    ));
+  }
+  if (found instanceof HTMLCanvasElement) {
+    charts.push(lineChart(
+      found,
+      history.observations.map((point) => axisWhen(point.at)),
+      history.observations.map((point) => point.price),
+      history.currency,
+      history.observations.map((point) => formatFoundAt(point.at)),
+    ));
+  }
+  return charts;
+}
+
+function lineChart(
+  canvas: HTMLCanvasElement,
+  labels: readonly string[],
+  prices: readonly number[],
+  currency: string,
+  titles: readonly string[],
+): Chart {
+  return new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: [...labels],
+      datasets: [{
+        data: [...prices],
+        borderColor: ACCENT,
+        backgroundColor: BARGAIN,
+        pointBackgroundColor: BARGAIN,
+        tension: 0.25,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => titles[items[0]?.dataIndex ?? 0] ?? '',
+            label: (item) => formatPrice(Number(item.raw), currency),
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: INK, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 } },
+        y: {
+          grid: { color: GRID },
+          ticks: {
+            color: MUTED,
+            maxTicksLimit: 4,
+            callback: (value) => formatPrice(Number(value), currency),
+          },
+        },
+      },
+    },
+  });
+}
+
+function dayLabel(isoDay: string): string {
+  const [, month, day] = isoDay.split('-');
+  return month && day ? `${day}/${month}` : isoDay;
+}
+
+function fullDay(isoDay: string): string {
+  const [year, month, day] = isoDay.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : isoDay;
+}
+
+function axisWhen(iso: string): string {
+  if (!iso.includes('T')) return dayLabel(iso);
+  return formatFoundAt(iso);
 }
 
 function gapClass(gapRatio: number | null): string {

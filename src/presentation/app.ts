@@ -1,8 +1,9 @@
-// Versão: 2.9
+// Versão: 3.0
 import { AIRPORTS } from '../data/airports';
 import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
+import { buildDestinationHistory } from '../domain/destination-history';
 import { calendarDay, todayIso } from '../domain/iso-date';
 import { presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../domain/present-offers';
 import { markBargains } from '../domain/price-anomaly';
@@ -475,7 +476,7 @@ export async function startApp(doc: Document = document): Promise<void> {
       pinned: favorites?.favoriteDestinations.includes(offer.destination) ?? false,
       city: placeOf(offer.destination)?.city ?? airport?.city ?? offer.destination,
       onToggle: () => changeFavorite(offer.destination, !(favorites?.favoriteDestinations.includes(offer.destination) ?? false)),
-    });
+    }, buildDestinationHistory(catalog, offer));
   }
 
   function showOfferOnMap(): void {

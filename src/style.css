@@ -1,4 +1,4 @@
-/* Versão: 3.9 */
+/* Versão: 4.0 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -329,6 +329,10 @@ input, select {
 .chart-card canvas { flex: 1; min-height: 0; width: 100%; }
 .chart-card .help:empty { display: none; }
 .chart-card[hidden] { display: none !important; }
+.history-charts { display: grid; gap: 0.75rem; }
+.history-charts .help { margin: 0; }
+.chart-card--history { height: 210px; }
+.chart-card--history h3 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 1.15rem; font-weight: 400; }
 
 .stage {
   flex: 1;
