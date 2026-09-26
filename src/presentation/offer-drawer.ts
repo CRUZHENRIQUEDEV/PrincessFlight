@@ -1,12 +1,13 @@
-// Versão: 1.5
+// Versão: 1.6
 import { placeOf } from '../data/places';
 import { airlineBookingLink } from '../domain/airline-link';
+import { priceFoundAt } from '../domain/offer';
 import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
 import type { Airport, FlightOffer } from '../domain/types';
 import type { DestinationNotes } from '../infrastructure/destination-notes';
 import { googlePlaceSearchUrl, type PlaceSpot } from '../domain/place-notes';
-import { airlineLabel, formatGap, formatPrice, formatStops, formatWhen } from './format';
+import { airlineLabel, formatFoundAt, formatGap, formatPrice, formatStops, formatWhen } from './format';
 
 export interface OfferFavoriteAction {
   pinned: boolean;
@@ -145,6 +146,10 @@ function facts(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {
     fact('Voo', offer.flightNumber || 'não informado'),
     fact('Paradas', formatStops(offer.transfers, offer.returnTransfers)),
     fact('Aeroportos', `${offer.originAirport} → ${offer.destinationAirport}`),
+  );
+  const foundAt = priceFoundAt(offer);
+  if (foundAt) rows.push(fact('Achado em', formatFoundAt(foundAt)));
+  rows.push(
     fact('Consultada', formatWhen(offer.fetchedAt)),
   );
   list.append(...rows);

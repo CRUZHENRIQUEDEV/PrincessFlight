@@ -1,4 +1,4 @@
-// Versão: 1.2
+// Versão: 1.3
 import { describe, expect, it, vi } from 'vitest';
 import { anywhereEndpoint, buildAnywhereUrl, buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, cacheCityCode, calendarEndpoint, cheapEndpoint, parseAnywhereBody, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
@@ -106,6 +106,34 @@ describe('cliente Travelpayouts', () => {
       },
     }, query);
     expect(tickets[0]).toMatchObject({ price: 890, airline: 'G3', departureAt: '2026-11-04T09:00:00-03:00' });
+  });
+
+  it('guarda a hora em que o preço foi achado', () => {
+    const withClock = parsePricesBody({
+      success: true,
+      currency: 'brl',
+      data: [{
+        price: 800,
+        airline: 'G3',
+        flight_number: 1,
+        departure_at: '2026-11-18T19:25:00-03:00',
+        found_at: '2026-09-22T14:08:45+04:00',
+        link: '/search/GRU1811SSA',
+      }],
+    }, query);
+    expect(withClock[0]?.foundAt).toBe('2026-09-22T14:08:45+04:00');
+    const fromLink = parsePricesBody({
+      success: true,
+      currency: 'brl',
+      data: [{
+        price: 800,
+        airline: 'G3',
+        flight_number: 1,
+        departure_at: '2026-11-18T19:25:00-03:00',
+        link: '/search/GRU1811SSA?search_date=11052023',
+      }],
+    }, query);
+    expect(fromLink[0]?.foundAt).toBe('2023-05-11');
   });
 
   it('guarda a origem pedida, mesmo quando a API devolve o código da cidade', () => {

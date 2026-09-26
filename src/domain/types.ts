@@ -1,4 +1,4 @@
-// Versão: 1.6
+// Versão: 1.7
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
@@ -53,6 +53,7 @@ export interface RawTicket {
   transfers: number;
   returnTransfers: number;
   link: string;
+  foundAt?: string | null;
   durationToMinutes?: number | null;
   durationBackMinutes?: number | null;
 }
@@ -73,6 +74,7 @@ export interface FlightOffer {
   returnTransfers: number;
   link: string;
   fetchedAt: string;
+  foundAt?: string | null;
   durationToMinutes?: number | null;
   durationBackMinutes?: number | null;
   isBargain: boolean;

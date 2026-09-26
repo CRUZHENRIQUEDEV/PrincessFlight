@@ -1,8 +1,9 @@
-// Versão: 1.5
+// Versão: 1.6
 import { placeOf } from '../data/places';
+import { priceFoundAt } from '../domain/offer';
 import { groupOffersByDestination } from '../domain/present-offers';
 import type { Airport, FlightOffer } from '../domain/types';
-import { airlineLabel, formatGap, formatPrice, formatStops, formatWhen } from './format';
+import { airlineLabel, formatFoundAt, formatGap, formatPrice, formatStops, formatWhen } from './format';
 
 export class ResultsView {
   private readonly openDestinations = new Set<string>();
@@ -90,7 +91,11 @@ export class ResultsView {
     const newest = fresh ? ' offer--fresh' : '';
     card.className = `offer${bargain}${newest}`;
     card.tabIndex = 0;
-    card.append(heading(offer, airport), gapLine(offer), metaLine(offer), linkOrNote(offer.link));
+    const nodes: HTMLElement[] = [heading(offer, airport), gapLine(offer), metaLine(offer)];
+    const found = foundLine(offer);
+    if (found) nodes.push(found);
+    nodes.push(linkOrNote(offer.link));
+    card.append(...nodes);
     card.addEventListener('click', () => onSelect(offer));
     card.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -146,6 +151,15 @@ function gapClass(gapRatio: number | null): string {
   if (gapRatio > 0.005) return 'offer__gap--below';
   if (gapRatio < -0.005) return 'offer__gap--above';
   return 'offer__gap--even';
+}
+
+function foundLine(offer: FlightOffer): HTMLElement | null {
+  const foundAt = priceFoundAt(offer);
+  if (!foundAt) return null;
+  const line = document.createElement('p');
+  line.className = 'offer__meta';
+  line.textContent = `Preço achado em ${formatFoundAt(foundAt)}`;
+  return line;
 }
 
 function metaLine(offer: FlightOffer): HTMLElement {

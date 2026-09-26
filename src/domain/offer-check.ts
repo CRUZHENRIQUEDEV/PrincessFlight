@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import { calendarDay } from './iso-date';
 import { toFlightOffer } from './offer';
 import type { FlightOffer, RawTicket } from './types';
@@ -15,7 +15,7 @@ export function judgeOffer(current: FlightOffer, tickets: readonly RawTicket[], 
   const live = tickets.map((ticket) => toFlightOffer(ticket, now)).find((item) => sameFlight(item, current));
   if (!live) return { status: 'missing', offer: null };
   if (live.price === current.price) {
-    return { status: 'same', offer: { ...current, fetchedAt: now, link: live.link || current.link } };
+    return { status: 'same', offer: { ...current, fetchedAt: now, link: live.link || current.link, foundAt: live.foundAt ?? current.foundAt } };
   }
   return { status: 'changed', offer: live };
 }

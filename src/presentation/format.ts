@@ -1,4 +1,4 @@
-// Versão: 1.2
+// Versão: 1.3
 
 const AIRLINE_NAMES: Record<string, string> = {
   G3: 'Gol',
@@ -39,6 +39,16 @@ export function formatWhen(iso: string): string {
     timeStyle: 'short',
     timeZone: 'America/Sao_Paulo',
   }).format(date);
+}
+
+export function formatFoundAt(iso: string): string {
+  const hasTime = iso.includes('T');
+  const date = new Date(hasTime ? iso : `${iso}T12:00:00-03:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  if (!hasTime) {
+    return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(date);
+  }
+  return formatWhen(iso);
 }
 
 export function formatGap(gapRatio: number | null): string {

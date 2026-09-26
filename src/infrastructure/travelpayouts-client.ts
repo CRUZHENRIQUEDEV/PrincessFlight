@@ -1,5 +1,6 @@
-// Versão: 1.8
+// Versão: 1.9
 import { calendarDay } from '../domain/iso-date';
+import { searchDateFromLink } from '../domain/offer';
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
 import { TravelpayoutsError } from './travelpayouts-error';
@@ -357,6 +358,7 @@ function toTicket(value: unknown, query: RouteMonthQuery, currency: string): Raw
   const departureAt = text(row.departure_at);
   if (price === null || price <= 0 || !departureAt) return null;
   const returnAt = text(row.return_at);
+  const link = absoluteLink(text(row.link), query.token);
   return {
     origin: query.origin.toUpperCase(),
     destination: query.destination.toUpperCase(),
@@ -372,7 +374,8 @@ function toTicket(value: unknown, query: RouteMonthQuery, currency: string): Raw
     returnTransfers: numberValue(row.return_transfers) ?? 0,
     durationToMinutes: flightMinutes(row.duration_to) ?? (returnAt ? null : flightMinutes(row.duration)),
     durationBackMinutes: returnAt ? flightMinutes(row.duration_back) : null,
-    link: absoluteLink(text(row.link), query.token),
+    link,
+    foundAt: text(row.found_at) || searchDateFromLink(link),
   };
 }
 
