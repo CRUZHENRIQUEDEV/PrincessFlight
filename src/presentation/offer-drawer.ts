@@ -1,8 +1,17 @@
-// Versão: 1.0
+// Versão: 1.4
 import { airlineBookingLink } from '../domain/airline-link';
+import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
 import type { Airport, FlightOffer } from '../domain/types';
+import type { DestinationNotes } from '../infrastructure/destination-notes';
+import { googlePlaceSearchUrl, type PlaceSpot } from '../domain/place-notes';
 import { airlineLabel, formatGap, formatPrice, formatStops, formatWhen } from './format';
+
+export interface OfferFavoriteAction {
+  pinned: boolean;
+  city: string;
+  onToggle: () => void;
+}
 
 export interface OfferDrawerState {
   phase: 'idle' | 'checking' | OfferVerdictStatus | 'error';
@@ -26,7 +35,13 @@ export class OfferDrawer {
     });
   }
 
-  show(offer: FlightOffer, airports: readonly Airport[], state: OfferDrawerState): void {
+  show(
+    offer: FlightOffer,
+    airports: readonly Airport[],
+    state: OfferDrawerState,
+    notes: DestinationNotes,
+    favorite: OfferFavoriteAction,
+  ): void {
     this.root.hidden = false;
     const title = this.root.querySelector('#offer-drawer-title');
     const airport = airports.find((item) => item.iata === offer.destination);
@@ -35,7 +50,7 @@ export class OfferDrawer {
     if (!panel) return;
     const body = panel.querySelector('.offer-drawer__body');
     if (!body) return;
-    body.replaceChildren(sheet(offer, airports, state, this.onRefresh, this.onMap));
+    body.replaceChildren(sheet(offer, airports, state, notes, favorite, this.onRefresh, this.onMap));
   }
 
   hide(): void {
@@ -47,6 +62,8 @@ function sheet(
   offer: FlightOffer,
   airports: readonly Airport[],
   state: OfferDrawerState,
+  notes: DestinationNotes,
+  favorite: OfferFavoriteAction,
   onRefresh: () => void,
   onMap: (iata: string) => void,
 ): HTMLElement {
@@ -55,9 +72,11 @@ function sheet(
   wrap.append(
     routeBlock(offer, airports),
     priceBlock(offer),
-    facts(offer),
+    facts(offer, airports),
+    climateBlock(notes.climate),
+    placesBlock(notes, airports.find((item) => item.iata === offer.destination), offer.destination),
     notice(state),
-    actions(offer, state, onRefresh, onMap),
+    actions(offer, state, favorite, onRefresh, onMap),
   );
   return wrap;
 }
@@ -102,19 +121,87 @@ function priceBlock(offer: FlightOffer): HTMLElement {
   return block;
 }
 
-function facts(offer: FlightOffer): HTMLElement {
+function facts(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {
   const list = document.createElement('dl');
   list.className = 'offer-sheet__facts';
-  list.append(
+  const rows = [
     fact('Ida', formatWhen(offer.departureAt)),
     fact('Volta', offer.returnAt ? formatWhen(offer.returnAt) : 'sem volta'),
+    fact('Tempo de ida', outboundTime(offer, airports)),
+  ];
+  if (offer.returnAt) rows.push(fact('Tempo de volta', returnTime(offer, airports)));
+  rows.push(
     fact('Companhia', airlineLabel(offer.airline)),
     fact('Voo', offer.flightNumber || 'não informado'),
     fact('Paradas', formatStops(offer.transfers, offer.returnTransfers)),
     fact('Aeroportos', `${offer.originAirport} → ${offer.destinationAirport}`),
     fact('Consultada', formatWhen(offer.fetchedAt)),
   );
+  list.append(...rows);
   return list;
+}
+
+function outboundTime(offer: FlightOffer, airports: readonly Airport[]): string {
+  return legLabel(offer.durationToMinutes, estimateBlockMinutes(routeKm(offer, airports), offer.transfers));
+}
+
+function returnTime(offer: FlightOffer, airports: readonly Airport[]): string {
+  return legLabel(offer.durationBackMinutes, estimateBlockMinutes(routeKm(offer, airports), offer.returnTransfers));
+}
+
+function routeKm(offer: FlightOffer, airports: readonly Airport[]): number {
+  const origin = airports.find((airport) => airport.iata === offer.origin);
+  const destination = airports.find((airport) => airport.iata === offer.destination);
+  if (!origin || !destination) return 800;
+  return distanceKm(origin, destination);
+}
+
+function climateBlock(text: string): HTMLElement {
+  const section = document.createElement('section');
+  const title = document.createElement('h3');
+  title.textContent = 'Clima na época';
+  const line = document.createElement('p');
+  line.textContent = text;
+  section.append(title, line);
+  return section;
+}
+
+function placesBlock(notes: DestinationNotes, airport: Airport | undefined, iata: string): HTMLElement {
+  const section = document.createElement('section');
+  const title = document.createElement('h3');
+  title.textContent = 'Por perto';
+  section.append(title);
+  if (notes.places.length > 0) section.append(placeList(notes.places, airport, iata));
+  const note = document.createElement('p');
+  note.className = 'help';
+  note.textContent = notes.placesNote;
+  section.append(note);
+  return section;
+}
+
+function placeList(places: readonly PlaceSpot[], airport: Airport | undefined, iata: string): HTMLElement {
+  const list = document.createElement('ul');
+  list.className = 'offer-sheet__places offer-sheet__places--links';
+  for (const place of places) list.append(placeItem(place, airport, iata));
+  return list;
+}
+
+function placeItem(place: PlaceSpot, airport: Airport | undefined, iata: string): HTMLElement {
+  const item = document.createElement('li');
+  const mapLink = document.createElement('a');
+  mapLink.href = place.href;
+  mapLink.target = '_blank';
+  mapLink.rel = 'noopener noreferrer';
+  mapLink.textContent = place.name;
+  const google = document.createElement('a');
+  google.href = googlePlaceSearchUrl([place.name, airport?.city || iata, airport?.state ?? '', airport?.country ?? '']);
+  google.target = '_blank';
+  google.rel = 'noopener noreferrer';
+  google.textContent = 'Google';
+  const kind = document.createElement('span');
+  kind.textContent = place.kind;
+  item.append(mapLink, google, kind);
+  return item;
 }
 
 function fact(label: string, value: string): HTMLElement {
@@ -137,6 +224,7 @@ function notice(state: OfferDrawerState): HTMLElement {
 function actions(
   offer: FlightOffer,
   state: OfferDrawerState,
+  favorite: OfferFavoriteAction,
   onRefresh: () => void,
   onMap: (iata: string) => void,
 ): HTMLElement {
@@ -148,7 +236,7 @@ function actions(
   refresh.textContent = state.phase === 'checking' ? 'Atualizando…' : 'Atualizar este voo';
   refresh.disabled = state.phase === 'checking';
   refresh.addEventListener('click', onRefresh);
-  row.append(refresh);
+  row.append(refresh, favoriteButton(favorite));
   const agency = externalLink(offer.link, 'Abrir na agência');
   if (agency) row.append(agency);
   const booking = airlineBookingLink(offer);
@@ -161,6 +249,15 @@ function actions(
   map.addEventListener('click', () => onMap(offer.destination));
   row.append(map);
   return row;
+}
+
+function favoriteButton(favorite: OfferFavoriteAction): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'button button--quiet';
+  button.textContent = favorite.pinned ? 'Remover dos favoritos' : `Favoritar ${favorite.city}`;
+  button.addEventListener('click', favorite.onToggle);
+  return button;
 }
 
 function externalLink(href: string, label: string): HTMLAnchorElement | null {

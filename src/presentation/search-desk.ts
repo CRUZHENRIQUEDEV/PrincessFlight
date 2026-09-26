@@ -1,11 +1,12 @@
-// Versão: 1.2
+// Versão: 1.4
 import { AIRPORTS } from '../data/airports';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
-import { refreshEveryMinutes, type SavedSearch } from '../domain/saved-search';
+import { refreshEveryMinutes, rescheduleRound, type SavedSearch } from '../domain/saved-search';
 import { buildSearchPlan } from '../domain/search-plan';
 import type { FlightOffer } from '../domain/types';
 import { delay, isAbortError } from '../infrastructure/delay';
+import { runFavoriteRound } from '../infrastructure/favorites-runner';
 import { runSearch, type RouteReport } from '../infrastructure/search-runner';
 import type { FlightPriceProvider } from '../infrastructure/travelpayouts-client';
 import { describeConsulting, describeRoute } from './search-feedback';
@@ -58,6 +59,12 @@ async function start(
 ): Promise<void> {
   const search = deps.getSearch(id);
   if (!search) return;
+  if (search.mode === 'favorites' && search.favoriteDestinations.length === 0) {
+    const message = 'Adicione um destino favorito. A busca pega a ida e a volta mais baratas, em qualquer data.';
+    deps.patch(id, { lastStatus: message, running: false });
+    if (deps.isActive(id)) deps.setStatus(message, false);
+    return;
+  }
   const refusal = refusalMessage(search, deps.readToken());
   if (refusal) {
     deps.patch(id, { lastStatus: refusal, running: false });
@@ -83,20 +90,38 @@ async function start(
 }
 
 function refusalMessage(search: SavedSearch, token: string): string | null {
+  if (search.mode === 'favorites') {
+    if (!token.trim()) return 'Cole o token da Travelpayouts. Ele fica salvo só neste navegador.';
+    if (!search.criteria.originIata) return 'Escolha a origem.';
+    return null;
+  }
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
-  const error = validateSearch(search.criteria, plan, token);
-  return error;
+  return validateSearch(search.criteria, plan, token);
 }
 
 function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor'): void {
   const search = deps.getSearch(id);
   if (!search) return;
+  if (search.mode === 'favorites') {
+    const total = search.favoriteDestinations.length;
+    publishStart(deps, id, mode, total, `Busca iniciada · ${total} destinos favoritos · ${total} chamadas.`);
+    return;
+  }
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
-  const started = `Busca iniciada · ${plan.destinations.length} destinos · ${plan.callCount} chamadas.`;
+  publishStart(deps, id, mode, plan.callCount, `Busca iniciada · ${plan.destinations.length} destinos · ${plan.callCount} chamadas.`);
+}
+
+function publishStart(
+  deps: SearchDeskDeps,
+  id: string,
+  mode: 'once' | 'monitor',
+  total: number,
+  started: string,
+): void {
   deps.patch(id, {
     running: true,
     keepAlive: mode === 'monitor',
-    progress: { done: 0, total: plan.callCount },
+    progress: { done: 0, total },
     lastStatus: started,
   });
   if (!deps.isActive(id)) return;
@@ -124,7 +149,7 @@ async function runRounds(
     if (!search || stale()) return;
     const outcome = await oneRound(deps, search, signal, stale, mode === 'once');
     if (stale() || outcome === 'stop' || mode === 'once') return;
-    await delay(refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000, signal);
+    await waitForNextRound(deps, id, signal);
   } while (!signal.aborted);
 }
 
@@ -135,6 +160,7 @@ async function oneRound(
   stale: () => boolean,
   closing: boolean,
 ): Promise<'continue' | 'stop'> {
+  if (search.mode === 'favorites') return favoriteRound(deps, search, signal, stale, closing);
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
   const error = validateSearch(search.criteria, plan, deps.readToken());
   if (error) return halt(deps, search.id, error, true, stale);
@@ -166,6 +192,54 @@ async function oneRound(
   return 'continue';
 }
 
+function favoriteRound(
+  deps: SearchDeskDeps,
+  search: SavedSearch,
+  signal: AbortSignal,
+  stale: () => boolean,
+  closing: boolean,
+): Promise<'continue' | 'stop'> {
+  return runFavoriteRound({
+    origin: search.criteria.originIata,
+    destinations: search.favoriteDestinations,
+    token: deps.readToken(),
+    provider: deps.provider,
+    signal,
+    sleep: delay,
+    delaySeconds: search.criteria.delayBetweenCallsSeconds,
+    now: () => new Date().toISOString(),
+    onProgress: (done, total, destination) => {
+      if (stale()) return;
+      showConsulting(deps, search.id, done, total, destination, 'qualquer data');
+    },
+    onRoute: (progress) => {
+      if (stale()) return;
+      const airport = AIRPORTS.find((item) => item.iata === progress.destination);
+      const city = airport?.city ?? progress.destination;
+      const found = progress.ticketCount === 0 ? 'sem preço no cache' : 'menor preço encontrado';
+      const line = `${progress.completedCalls} de ${progress.totalCalls} · ${city} · qualquer data · ${found}`;
+      deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
+      if (!deps.isActive(search.id)) return;
+      deps.setStatus(line, false);
+      deps.note(line);
+    },
+    onBatch: (batch) => {
+      if (stale()) return;
+      showBatch(deps, search.id, batch);
+    },
+  }).then((found) => {
+    if (stale()) return 'stop' as const;
+    if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    conclude(deps, search, found, null, closing);
+    return 'continue' as const;
+  }).catch((error: unknown) => {
+    if (stale()) return 'stop' as const;
+    if (isAbortError(error)) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    const message = error instanceof Error ? error.message : 'Falha na busca.';
+    return halt(deps, search.id, message, true, stale);
+  });
+}
+
 function halt(
   deps: SearchDeskDeps,
   id: string,
@@ -187,16 +261,42 @@ function conclude(
   closing: boolean,
 ): void {
   const failNote = message ? ` ${message}` : '';
-  const minutes = refreshEveryMinutes(search.criteria.repeatEveryMinutes);
+  const current = deps.getSearch(search.id) ?? search;
+  const minutes = refreshEveryMinutes(current.criteria.repeatEveryMinutes);
+  const count = offers.length === 1 ? '1 oferta' : `${offers.length} ofertas`;
   const text = closing
-    ? `Busca concluída · ${offers.length} ofertas.${failNote}`
-    : `Rodada concluída · ${offers.length} ofertas.${failNote} Próxima em ${minutes} min.`;
+    ? `Busca concluída · ${count}.${failNote}`
+    : `Rodada concluída · ${count}.${failNote} Próxima em ${minutes} min.`;
   const stored = deps.getSearch(search.id)?.offers ?? [];
   const merged = mergeOffers(stored, offers);
   deps.patch(search.id, { offers: merged, lastStatus: text });
   if (!deps.isActive(search.id)) return;
   deps.setStatus(text, false);
   deps.note(text);
+}
+
+const ROUND_CHECK_MS = 1_000;
+
+async function waitForNextRound(deps: SearchDeskDeps, id: string, signal: AbortSignal): Promise<void> {
+  let minutes = roundMinutes(deps, id);
+  let endsAt = Date.now() + minutes * 60_000;
+  while (!signal.aborted) {
+    const scheduled = rescheduleRound(Date.now(), endsAt, minutes, roundMinutes(deps, id));
+    if (scheduled.minutes !== minutes) {
+      minutes = scheduled.minutes;
+      endsAt = scheduled.endsAt;
+      const text = `Próxima rodada em ${minutes} min.`;
+      deps.patch(id, { lastStatus: text });
+      if (deps.isActive(id)) deps.setStatus(text, false);
+    }
+    const left = endsAt - Date.now();
+    if (left <= 0) return;
+    await delay(Math.min(left, ROUND_CHECK_MS), signal);
+  }
+}
+
+function roundMinutes(deps: SearchDeskDeps, id: string): number {
+  return refreshEveryMinutes(deps.getSearch(id)?.criteria.repeatEveryMinutes ?? 0);
 }
 
 function showConsulting(

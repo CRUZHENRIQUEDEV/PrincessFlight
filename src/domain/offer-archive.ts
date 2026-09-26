@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import type { FlightOffer } from './types';
 
 const MAX_STORED_OFFERS = 2000;
@@ -10,4 +10,12 @@ export function mergeOffers(stored: readonly FlightOffer[], incoming: readonly F
   return [...byId.values()]
     .sort((left, right) => right.fetchedAt.localeCompare(left.fetchedAt))
     .slice(0, MAX_STORED_OFFERS);
+}
+
+/** Reúne o arquivo comum com as ofertas de cada pesquisa. */
+export function collectCatalog(
+  searches: readonly { offers: readonly FlightOffer[] }[],
+  stored: readonly FlightOffer[] = [],
+): FlightOffer[] {
+  return searches.reduce((catalog, search) => mergeOffers(catalog, search.offers), mergeOffers([], stored));
 }

@@ -1,4 +1,4 @@
-// Versão: 1.3
+// Versão: 1.4
 import { addDays, todayIso, tomorrowIso } from './iso-date';
 import type { OfferSort, Region, SearchCriteria, TripScope } from './types';
 import type { SearchPlan } from './search-plan';
@@ -125,7 +125,9 @@ function parseScope(value: string): TripScope {
 }
 
 function parseOfferSort(value: string): OfferSort {
-  return value === 'date' ? 'date' : 'price';
+  if (value === 'date') return 'date';
+  if (value === 'discount') return 'discount';
+  return 'price';
 }
 
 function parseRegions(values: readonly string[]): Region[] {

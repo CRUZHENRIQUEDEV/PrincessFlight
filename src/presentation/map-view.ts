@@ -1,5 +1,6 @@
-// Versão: 1.1
+// Versão: 1.2
 import L from 'leaflet';
+import { greatCircle } from '../domain/flight-path';
 import type { Airport, FlightOffer } from '../domain/types';
 import { cheapestByDestination } from '../domain/present-offers';
 import { airlineLabel, escapeHtml, formatGap, formatPrice, formatWhen } from './format';
@@ -7,6 +8,8 @@ import { airlineLabel, escapeHtml, formatGap, formatPrice, formatWhen } from './
 export class MapView {
   private readonly map: L.Map;
   private readonly layer = L.layerGroup();
+  private readonly route = L.layerGroup();
+  private activeRoute: { origin: Airport; destination: Airport } | null = null;
 
   constructor(container: HTMLElement) {
     this.map = L.map(container).setView([-14.2, -51.9], 4);
@@ -15,6 +18,7 @@ export class MapView {
       maxZoom: 12,
     }).addTo(this.map);
     this.layer.addTo(this.map);
+    this.route.addTo(this.map);
     window.addEventListener('resize', () => this.map.invalidateSize());
   }
 
@@ -31,7 +35,15 @@ export class MapView {
       marker.bindPopup(popupHtml(airport, offer));
       marker.addTo(this.layer);
     }
-    this.fit(bounds);
+    if (!this.activeRoute) this.fit(bounds);
+    this.paintRoute();
+  }
+
+  showRoute(origin: Airport, destination: Airport): void {
+    this.activeRoute = { origin, destination };
+    this.paintRoute();
+    const points = greatCircle(origin, destination);
+    if (points.length > 1) this.map.fitBounds(points, { padding: [36, 36] });
   }
 
   focus(iata: string, airports: readonly Airport[]): void {
@@ -42,6 +54,15 @@ export class MapView {
 
   invalidate(): void {
     this.map.invalidateSize();
+  }
+
+  private paintRoute(): void {
+    this.route.clearLayers();
+    const active = this.activeRoute;
+    if (!active) return;
+    const points = greatCircle(active.origin, active.destination);
+    L.polyline(points, { color: '#100e11', weight: 8, opacity: 0.55 }).addTo(this.route);
+    L.polyline(points, { color: '#ff5a1f', weight: 3, opacity: 0.95 }).addTo(this.route);
   }
 
   private addOrigin(airport: Airport | undefined, bounds: L.LatLngTuple[]): void {

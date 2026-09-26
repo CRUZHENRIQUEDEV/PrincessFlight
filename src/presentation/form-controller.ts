@@ -1,6 +1,7 @@
-// Versão: 1.6
+// Versão: 1.8
 import { parseAlertRules, type AlertRules, type AlertRulesInput } from '../domain/alert-rules';
 import { parseCriteria, type CriteriaInput } from '../domain/criteria';
+import { refreshEveryMinutes } from '../domain/saved-search';
 import type { Airport, SearchCriteria } from '../domain/types';
 import type { StoredSettings } from '../infrastructure/flight-store';
 import { syncDatePicker } from './date-picker';
@@ -53,7 +54,7 @@ export function readCriteriaInput(doc: Document): CriteriaInput {
     repeatEveryMinutes: valueOf(doc, 'repeat-minutes'),
     bargainsOnly: checked(doc, 'bargains-only'),
     includeRegularPrices: checkedOrMissing(doc, 'show-all'),
-    offerSort: checked(doc, 'sort-date') ? 'date' : 'price',
+    offerSort: readOfferSort(doc),
   };
 }
 
@@ -66,8 +67,9 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   setChecked(doc, 'holiday-only', criteria.holidayBridgeOnly);
   setChecked(doc, 'bargains-only', criteria.bargainsOnly);
   setChecked(doc, 'show-all', criteria.includeRegularPrices !== false);
-  setChecked(doc, 'sort-price', criteria.offerSort !== 'date');
+  setChecked(doc, 'sort-price', criteria.offerSort === 'price');
   setChecked(doc, 'sort-date', criteria.offerSort === 'date');
+  setChecked(doc, 'sort-discount', criteria.offerSort === 'discount');
   setValue(doc, 'date-start', criteria.departureStart);
   setValue(doc, 'date-end', criteria.departureEnd);
   setValue(doc, 'price-min', criteria.priceMin === null ? '' : String(criteria.priceMin));
@@ -75,7 +77,7 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   setValue(doc, 'bargain-ratio', String(Math.round(criteria.bargainRatio * 100)));
   setValue(doc, 'airlines', criteria.airlines.join(', '));
   setValue(doc, 'delay-seconds', String(criteria.delayBetweenCallsSeconds));
-  setValue(doc, 'repeat-minutes', String(criteria.repeatEveryMinutes));
+  setValue(doc, 'repeat-minutes', String(refreshEveryMinutes(criteria.repeatEveryMinutes)));
   checkNamed(doc, 'region', new Set(criteria.regions));
   checkNamed(doc, 'state', new Set(criteria.states));
   if (rules) fillAlertRules(doc, rules);
@@ -138,6 +140,12 @@ function checkNamed(doc: Document, name: string, selected: ReadonlySet<string>):
   for (const input of doc.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) {
     input.checked = selected.has(input.value);
   }
+}
+
+function readOfferSort(doc: Document): string {
+  if (checked(doc, 'sort-discount')) return 'discount';
+  if (checked(doc, 'sort-date')) return 'date';
+  return 'price';
 }
 
 function checked(doc: Document, id: string): boolean {

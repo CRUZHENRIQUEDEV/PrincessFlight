@@ -1,6 +1,6 @@
 // Versão: 1.2
 import { describe, expect, it, vi } from 'vitest';
-import { buildPricesForDatesUrl, buildCalendarUrl, calendarEndpoint, parseCalendarBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
+import { buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, calendarEndpoint, cheapEndpoint, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
 import type { RouteMonthQuery } from '../src/infrastructure/travelpayouts-client';
 
@@ -13,6 +13,27 @@ const query: RouteMonthQuery = {
 };
 
 describe('cliente Travelpayouts', () => {
+  it('escolhe o menor preço de ida e volta, sem data fixa', () => {
+    const endpoint = cheapEndpoint('https://api.travelpayouts.com/aviasales/v3/prices_for_dates');
+    expect(endpoint).toBe('https://api.travelpayouts.com/v1/prices/cheap');
+    const url = new URL(buildCheapUrl(query, endpoint));
+    expect(url.searchParams.get('currency')).toBe('brl');
+    expect(url.searchParams.has('departure_at')).toBe(false);
+    const ticket = parseCheapBody({
+      success: true,
+      currency: 'brl',
+      data: {
+        SSA: {
+          1: { price: 900, airline: 'G3', flight_number: 1404, departure_at: '2026-12-10T08:00:00-03:00', return_at: '2026-12-17T18:00:00-03:00' },
+          0: { price: 700, airline: 'AD', flight_number: 22, departure_at: '2026-11-15T09:00:00-03:00', return_at: '2026-11-22T21:00:00-03:00' },
+        },
+      },
+    }, query);
+    expect(ticket?.price).toBe(700);
+    expect(ticket?.airline).toBe('AD');
+    expect(ticket?.link).toBe('https://www.aviasales.com/search/GRU1511SSA22111');
+  });
+
   it('monta a URL em real, ida e volta', () => {
     const url = new URL(buildPricesForDatesUrl(query, 'https://api.travelpayouts.com/aviasales/v3/prices_for_dates'));
     expect(url.searchParams.get('currency')).toBe('brl');

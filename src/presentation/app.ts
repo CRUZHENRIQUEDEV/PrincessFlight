@@ -1,15 +1,27 @@
-// Versão: 2.1
+// Versão: 2.5
 import { AIRPORTS } from '../data/airports';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
-import { createDefaultCriteria, parseCriteria } from '../domain/criteria';
-import { judgeOffer, departureMonth } from '../domain/offer-check';
-import { presentOffers } from '../domain/present-offers';
+import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
+import { calendarDay, todayIso } from '../domain/iso-date';
+import { presentFavoriteOffers, presentOffers } from '../domain/present-offers';
 import { markBargains } from '../domain/price-anomaly';
-import { createSavedSearch, nextSearchName, withSearch, withoutSearch, type SavedSearch } from '../domain/saved-search';
+import {
+  createSavedSearch,
+  ensureFavoritesSearch,
+  favoritesCriteria,
+  nextSearchName,
+  withFavoriteDestination,
+  withSearch,
+  withoutSearch,
+  type SavedSearch,
+} from '../domain/saved-search';
 import { buildSearchPlan } from '../domain/search-plan';
+import { collectCatalog, mergeOffers } from '../domain/offer-archive';
 import type { FlightOffer } from '../domain/types';
 import { MemoryFlightStore, type FlightStore, type StoredSettings } from '../infrastructure/flight-store';
 import { IndexedDbFlightStore } from '../infrastructure/indexed-db-store';
+import { judgeOffer, departureMonth } from '../domain/offer-check';
+import { loadDestinationNotes, type DestinationNotes } from '../infrastructure/destination-notes';
 import { TravelpayoutsClient } from '../infrastructure/travelpayouts-client';
 import { createAlertSound } from './alert-sound';
 import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readSettings, readToken, syncScope } from './form-controller';
@@ -22,6 +34,7 @@ import { PriceCharts } from './price-charts';
 import { ResultsView } from './results-view';
 import { createSearchDesk, type SearchUpdate } from './search-desk';
 import { SearchListView } from './search-list-view';
+import { SearchDrawer } from './search-drawer';
 
 export async function startApp(doc: Document = document): Promise<void> {
   const opened = await openStore();
@@ -36,11 +49,14 @@ export async function startApp(doc: Document = document): Promise<void> {
     byId(doc, 'chart-departure-note'),
   );
   let searches: SavedSearch[] = [];
+  let catalog: FlightOffer[] = [];
   let activeId = '';
   let offers: FlightOffer[] = [];
   let freshIds = new Set<string>();
   let openOfferId: string | null = null;
   let drawerState: OfferDrawerState = { phase: 'idle', message: '' };
+  let notes: DestinationNotes = emptyNotes();
+  let notesKey = '';
   const provider = new TravelpayoutsClient();
   const heard = new Set(await opened.store.getHeardIds());
   const sound = createAlertSound();
@@ -55,16 +71,20 @@ export async function startApp(doc: Document = document): Promise<void> {
     (id) => { void removeSearch(id); },
     (id, name) => renameSearch(id, name),
   );
-  const paintList = () => list.render(searches, activeId);
+  const paintList = () => list.render(searches, activeId, catalogCounts());
   const render = () => {
-    const parsed = parseCriteria(readCriteriaInput(doc));
-    const visible = presentOffers(offers, parsed.criteria, AIRPORTS);
-    results.render(offers.length, visible, AIRPORTS, (offer) => openOffer(offer), freshIds);
+    const current = activeSearch();
+    const visible = visibleOffers();
+    const storedCount = current?.mode === 'favorites' ? catalog.length : offers.length;
+    results.render(storedCount, visible, AIRPORTS, (offer) => openOffer(offer), freshIds);
     charts.render(visible, AIRPORTS);
-    map.update(visible, AIRPORTS, parsed.criteria.originIata);
+    map.update(visible, AIRPORTS, current?.criteria.originIata ?? parseCriteria(readCriteriaInput(doc)).criteria.originIata);
     paintList();
+    paintFavorites(current);
+    paintNotes(current);
     syncStop();
     paintDrawer(visible);
+    paintSearchDrawer();
   };
   const setStatus = (message: string, isError: boolean) => {
     const status = byId(doc, 'status');
@@ -86,6 +106,8 @@ export async function startApp(doc: Document = document): Promise<void> {
   populateLocations(doc, AIRPORTS);
   const saved = await opened.store.getSettings();
   searches = await loadSearches(opened.store, saved);
+  catalog = collectCatalog(searches, await opened.store.getOffers());
+  void opened.store.saveOffers(catalog);
   activeId = pickActive(searches, saved?.activeSearchId);
   const current = activeSearch();
   fillForm(doc, saved?.token ?? '', current.criteria, current.alertRules);
@@ -106,7 +128,14 @@ export async function startApp(doc: Document = document): Promise<void> {
     remember();
     void desk.run(activeId, 'monitor');
   });
-  form.addEventListener('input', () => refreshFromControls());
+  form.addEventListener('input', (event) => {
+    const target = event.target;
+    if (target instanceof HTMLTextAreaElement && target.id === 'search-notes') {
+      saveNotes(target.value);
+      return;
+    }
+    refreshFromControls();
+  });
   doc.getElementById('offers-tools')?.addEventListener('change', () => refreshFromControls());
   doc.getElementById('more-filters')?.addEventListener('toggle', () => {
     requestAnimationFrame(() => map.invalidate());
@@ -122,17 +151,75 @@ export async function startApp(doc: Document = document): Promise<void> {
   byId(doc, 'save-button').addEventListener('click', () => { void saveProfile(); });
   byId(doc, 'clear-button').addEventListener('click', () => clearOffers());
   byId(doc, 'new-search').addEventListener('click', () => { void createSearch(); });
+  doc.getElementById('favorite-add')?.addEventListener('click', () => {
+    const select = doc.getElementById('favorite-destination');
+    if (select instanceof HTMLSelectElement && select.value) changeFavorite(select.value, true);
+  });
 
   updateEstimate(doc);
+  const searchDrawer = new SearchDrawer(
+    byId(doc, 'search-drawer'),
+    () => searchDrawer.hide(),
+    (iata) => changeFavorite(iata, false),
+  );
   render();
   requestAnimationFrame(() => map.invalidate());
   setStatus(current.lastStatus || openingMessage(opened.persistent, readToken(doc)), false);
+
+  function catalogCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const search of searches) {
+      if (search.mode !== 'favorites') continue;
+      counts.set(search.id, presentFavoriteOffers(
+        catalog,
+        search.criteria.originIata,
+        search.favoriteDestinations,
+      ).length);
+    }
+    return counts;
+  }
+
+  function visibleOffers(): FlightOffer[] {
+    const current = activeSearch();
+    const parsed = parseCriteria(readCriteriaInput(doc));
+    if (current?.mode === 'favorites') {
+      return presentFavoriteOffers(
+        catalog,
+        current.criteria.originIata,
+        current.favoriteDestinations,
+        parsed.criteria.offerSort,
+        current.criteria.bargainRatio,
+      );
+    }
+    return presentOffers(offers, parsed.criteria, AIRPORTS);
+  }
+
+  function rememberOffers(incoming: readonly FlightOffer[]): void {
+    catalog = mergeOffers(catalog, incoming);
+    void opened.store.saveOffers(catalog);
+  }
 
   function refreshFromControls(): void {
     syncScope(doc);
     updateEstimate(doc);
     render();
     remember();
+  }
+
+  function saveNotes(text: string): void {
+    const current = searches.find((search) => search.id === activeId);
+    if (!current || current.notes === text) return;
+    searches = withSearch(searches, { ...current, notes: text, updatedAt: new Date().toISOString() });
+    void persist(activeId);
+  }
+
+  function paintNotes(current: SavedSearch | undefined): void {
+    const field = doc.getElementById('search-notes');
+    if (!(field instanceof HTMLTextAreaElement) || !current) return;
+    const sameSearch = field.dataset.searchId === current.id;
+    if (sameSearch && (document.activeElement === field || field.value === current.notes)) return;
+    field.dataset.searchId = current.id;
+    field.value = current.notes;
   }
 
   function renameSearch(id: string, name: string): void {
@@ -156,6 +243,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     const next = { ...current, ...update, updatedAt: new Date().toISOString() };
     searches = withSearch(searches, next);
     if (id === activeId) offers = next.offers;
+    if (update.offers) rememberOffers(update.offers);
     render();
     if ('offers' in update || update.running === false || 'keepAlive' in update) void persist(id);
   }
@@ -166,6 +254,16 @@ export async function startApp(doc: Document = document): Promise<void> {
     if (parsed.fieldError || alert.fieldError) return;
     const current = searches.find((search) => search.id === activeId);
     if (!current) return;
+    if (current.mode === 'favorites') {
+      searches = withSearch(searches, {
+        ...current,
+        criteria: favoriteCriteriaFromForm(parsed),
+        alertRules: alert.rules,
+        updatedAt: new Date().toISOString(),
+      });
+      paintList();
+      return;
+    }
     searches = withSearch(searches, {
       ...current,
       criteria: parsed.criteria,
@@ -176,6 +274,18 @@ export async function startApp(doc: Document = document): Promise<void> {
   }
 
   function currentSettings(): StoredSettings | null {
+    const active = searches.find((search) => search.id === activeId);
+    if (active?.mode === 'favorites') {
+      const regular = searches.find((search) => search.mode !== 'favorites');
+      const source = regular ?? active;
+      return {
+        token: readToken(doc),
+        criteria: source.criteria,
+        alertRules: source.alertRules,
+        updatedAt: new Date().toISOString(),
+        activeSearchId: activeId,
+      };
+    }
     const settings = readSettings(doc, new Date().toISOString());
     if (!settings) return null;
     return { ...settings, activeSearchId: activeId };
@@ -192,7 +302,14 @@ export async function startApp(doc: Document = document): Promise<void> {
   }
 
   function selectSearch(id: string): void {
-    if (id === activeId || !searches.some((search) => search.id === id)) return;
+    const target = searches.find((search) => search.id === id);
+    if (!target) return;
+    if (id === activeId) {
+      searchDrawer.show(target, AIRPORTS);
+      closeOffer();
+      return;
+    }
+    searchDrawer.hide();
     syncActiveFromForm();
     void persist(activeId);
     activeId = id;
@@ -211,8 +328,14 @@ export async function startApp(doc: Document = document): Promise<void> {
   async function createSearch(): Promise<void> {
     syncActiveFromForm();
     await persist(activeId);
-    const base = activeSearch();
-    const created = createSavedSearch(nextSearchName(searches), base.criteria, base.alertRules, new Date().toISOString());
+    const base = searches.find((search) => search.id === activeId && search.mode !== 'favorites')
+      ?? searches.find((search) => search.mode !== 'favorites');
+    const created = createSavedSearch(
+      nextSearchName(searches),
+      base?.criteria ?? createDefaultCriteria(),
+      base?.alertRules ?? createDefaultAlertRules(),
+      new Date().toISOString(),
+    );
     searches = [...searches, created];
     activeId = created.id;
     fillForm(doc, readToken(doc), created.criteria, created.alertRules);
@@ -295,7 +418,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     byId(doc, 'offer-drawer'),
     () => closeOffer(),
     () => { void refreshOpenOffer(); },
-    (iata) => map.focus(iata, AIRPORTS),
+    () => showOfferOnMap(),
   );
 
   function stopSearch(id: string): void {
@@ -310,7 +433,6 @@ export async function startApp(doc: Document = document): Promise<void> {
   function openOffer(offer: FlightOffer): void {
     openOfferId = offer.id;
     drawerState = { phase: 'idle', message: `Última consulta em ${formatWhen(offer.fetchedAt)}.` };
-    map.focus(offer.destination, AIRPORTS);
     paintDrawer(presentOffers(offers, parseCriteria(readCriteriaInput(doc)).criteria, AIRPORTS));
   }
 
@@ -326,11 +448,45 @@ export async function startApp(doc: Document = document): Promise<void> {
       closeOffer();
       return;
     }
-    drawer.show(offer, AIRPORTS, drawerState);
+    syncNotes(offer);
+    const favorites = searches.find((search) => search.mode === 'favorites');
+    const airport = AIRPORTS.find((item) => item.iata === offer.destination);
+    drawer.show(offer, AIRPORTS, drawerState, notes, {
+      pinned: favorites?.favoriteDestinations.includes(offer.destination) ?? false,
+      city: airport?.city ?? offer.destination,
+      onToggle: () => changeFavorite(offer.destination, !(favorites?.favoriteDestinations.includes(offer.destination) ?? false)),
+    });
+  }
+
+  function showOfferOnMap(): void {
+    const offer = offers.find((item) => item.id === openOfferId);
+    if (!offer) return;
+    const origin = AIRPORTS.find((airport) => airport.iata === offer.origin);
+    const destination = AIRPORTS.find((airport) => airport.iata === offer.destination);
+    if (!origin || !destination) return;
+    map.showRoute(origin, destination);
+    byId(doc, 'map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function syncNotes(offer: FlightOffer): void {
+    const key = `${offer.destination}:${calendarDay(offer.departureAt).slice(0, 7)}`;
+    if (key === notesKey) return;
+    notesKey = key;
+    notes = emptyNotes();
+    const airport = AIRPORTS.find((item) => item.iata === offer.destination);
+    if (!airport) {
+      notes = { climate: 'Sem coordenadas para o clima.', places: [], placesNote: 'Sem coordenadas para os pontos.' };
+      return;
+    }
+    void loadDestinationNotes(airport, offer.departureAt, todayIso()).then((loaded) => {
+      if (notesKey !== key) return;
+      notes = loaded;
+      paintDrawer(visibleOffers());
+    });
   }
 
   async function refreshOpenOffer(): Promise<void> {
-    const current = offers.find((item) => item.id === openOfferId);
+    const current = catalog.find((item) => item.id === openOfferId) ?? offers.find((item) => item.id === openOfferId);
     if (!current || drawerState.phase === 'checking') return;
     const month = departureMonth(current.departureAt);
     if (!month) {
@@ -366,20 +522,102 @@ export async function startApp(doc: Document = document): Promise<void> {
       return;
     }
     const current = activeSearch();
-    const nextOffers = verdict.status === 'same'
-      ? current.offers.map((item) => (item.id === previousId ? verdict.offer ?? item : item))
-      : current.offers.filter((item) => item.id !== previousId).concat(verdict.offer);
-    searches = withSearch(searches, { ...current, offers: nextOffers, updatedAt: new Date().toISOString() });
-    if (current.id === activeId) offers = nextOffers;
-    openOfferId = verdict.offer.id;
+    const nextOffer = verdict.offer;
+    const now = new Date().toISOString();
+    catalog = mergeOffers(catalog.filter((item) => item.id !== previousId), [nextOffer]);
+    void opened.store.saveOffers(catalog);
+    const touched: string[] = [];
+    searches = searches.map((search) => {
+      const related = search.id === current.id || search.offers.some((item) => item.id === previousId);
+      if (!related) return search;
+      const nextOffers = verdict.status === 'same'
+        ? search.offers.map((item) => (item.id === previousId ? nextOffer : item))
+        : search.offers.filter((item) => item.id !== previousId).concat(nextOffer);
+      touched.push(search.id);
+      return { ...search, offers: nextOffers, updatedAt: now };
+    });
+    offers = activeSearch().offers;
+    openOfferId = nextOffer.id;
     drawerState = verdict.status === 'same'
       ? { phase: 'same', message: 'Ainda válida. O preço continua o mesmo.' }
       : { phase: 'changed', message: `O preço mudou para ${formatPrice(verdict.offer.price, verdict.offer.currency)}.` };
     render();
-    void persist(current.id);
+    for (const id of touched) void persist(id);
   }
 
   resumeBackground();
+
+  function paintSearchDrawer(): void {
+    const openId = searchDrawer.openId;
+    if (!openId) return;
+    const search = searches.find((item) => item.id === openId);
+    if (!search) {
+      searchDrawer.hide();
+      return;
+    }
+    searchDrawer.show(search, AIRPORTS);
+  }
+
+  function paintFavorites(current: SavedSearch | undefined): void {
+    const panel = doc.getElementById('favorites-panel');
+    const active = current?.mode === 'favorites';
+    panel?.toggleAttribute('hidden', !active);
+    const dateButton = doc.getElementById('date-open');
+    if (dateButton instanceof HTMLButtonElement) dateButton.disabled = active;
+    for (const id of ['scope-nacional', 'scope-internacional']) {
+      const input = doc.getElementById(id);
+      if (input instanceof HTMLInputElement) input.disabled = active;
+    }
+    if (!active || !current) return;
+    const select = doc.getElementById('favorite-destination');
+    const chips = doc.getElementById('favorite-chips');
+    if (!(select instanceof HTMLSelectElement) || !chips) return;
+    const chosen = new Set(current.favoriteDestinations);
+    const previous = select.value;
+    const options = AIRPORTS.filter((airport) => airport.iata !== current.criteria.originIata && !chosen.has(airport.iata));
+    select.replaceChildren(...options.map((airport) => {
+      const option = doc.createElement('option');
+      option.value = airport.iata;
+      option.textContent = `${airport.city} (${airport.iata})`;
+      return option;
+    }));
+    if (options.some((airport) => airport.iata === previous)) select.value = previous;
+    chips.replaceChildren(...current.favoriteDestinations.map((code) => favoriteChip(code)));
+  }
+
+  function favoriteChip(code: string): HTMLElement {
+    const item = doc.createElement('li');
+    const airport = AIRPORTS.find((entry) => entry.iata === code);
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.textContent = `${airport?.city ?? code} · remover`;
+    button.addEventListener('click', () => changeFavorite(code, false));
+    item.append(button);
+    return item;
+  }
+
+  function changeFavorite(iata: string, included: boolean): void {
+    const current = searches.find((search) => search.mode === 'favorites');
+    if (!current) return;
+    const nextList = withFavoriteDestination(current, iata, included);
+    if (nextList.favoriteDestinations.join() === current.favoriteDestinations.join()) return;
+    const empty = nextList.favoriteDestinations.length === 0;
+    const next = {
+      ...nextList,
+      keepAlive: !empty,
+      updatedAt: new Date().toISOString(),
+      lastStatus: empty ? 'Adicione um destino favorito. A busca pega a ida e a volta mais baratas, em qualquer data.' : current.lastStatus,
+    };
+    searches = withSearch(searches, next);
+    if (activeId === current.id) offers = next.offers;
+    render();
+    void persist(current.id);
+    if (empty) {
+      desk.stop(current.id);
+      return;
+    }
+    if (included) void desk.run(current.id, 'monitor');
+  }
 
   function resumeBackground(): void {
     if (!readToken(doc)) return;
@@ -389,31 +627,60 @@ export async function startApp(doc: Document = document): Promise<void> {
   }
 }
 
+function favoriteCriteriaFromForm(parsed: ParsedCriteria): SavedSearch['criteria'] {
+  return {
+    ...favoritesCriteria(parsed.criteria.originIata),
+    delayBetweenCallsSeconds: parsed.criteria.delayBetweenCallsSeconds,
+    repeatEveryMinutes: parsed.criteria.repeatEveryMinutes,
+    bargainRatio: parsed.criteria.bargainRatio,
+    offerSort: parsed.criteria.offerSort,
+    includeRegularPrices: parsed.criteria.includeRegularPrices,
+  };
+}
+
+function emptyNotes(): DestinationNotes {
+  return {
+    climate: 'Buscando o clima da época…',
+    places: [],
+    placesNote: 'Buscando pontos de lazer…',
+  };
+}
+
 async function loadSearches(store: FlightStore, saved: StoredSettings | null): Promise<SavedSearch[]> {
   const stored = await store.getSearches();
-  if (stored.length > 0) {
-    return stored.map((search) => ({
+  const now = new Date().toISOString();
+  const mapped = stored.length > 0
+    ? stored.map((search) => ({
       ...search,
       running: false,
       progress: null,
       keepAlive: search.keepAlive !== false,
-    }));
+    }))
+    : [await firstSearch(store, saved, now)];
+  const origin = saved?.criteria.originIata ?? mapped.find((search) => search.mode !== 'favorites')?.criteria.originIata ?? 'BSB';
+  const ensured = ensureFavoritesSearch(mapped, origin, now);
+  for (const search of ensured) {
+    if (!stored.some((item) => item.id === search.id)) await store.saveSearch(search);
   }
+  return ensured;
+}
+
+async function firstSearch(store: FlightStore, saved: StoredSettings | null, now: string): Promise<SavedSearch> {
   const created = createSavedSearch(
     'Pesquisa 1',
     saved?.criteria ?? createDefaultCriteria(),
     saved?.alertRules ?? createDefaultAlertRules(),
-    saved?.updatedAt ?? new Date().toISOString(),
+    saved?.updatedAt ?? now,
   );
   created.offers = await store.getOffers();
   created.lastStatus = 'Pronta para buscar.';
-  await store.saveSearch(created);
-  return [created];
+  return created;
 }
 
 function pickActive(searches: readonly SavedSearch[], activeSearchId: string | undefined): string {
   if (activeSearchId && searches.some((search) => search.id === activeSearchId)) return activeSearchId;
-  return searches[0].id;
+  const regular = searches.find((search) => search.mode !== 'favorites');
+  return (regular ?? searches[0]).id;
 }
 
 async function openStore(): Promise<{ store: FlightStore; persistent: boolean }> {
@@ -484,6 +751,14 @@ function updateEstimate(doc: Document): void {
   const alert = parseAlertRules(readAlertInput(doc));
   if (parsed.fieldError || alert.fieldError) {
     estimate.textContent = parsed.fieldError ?? alert.fieldError ?? '';
+    return;
+  }
+  const favorites = doc.getElementById('favorites-panel');
+  if (favorites && !favorites.hidden) {
+    const count = doc.getElementById('favorite-chips')?.childElementCount ?? 0;
+    estimate.textContent = count === 0
+      ? 'Nenhum destino favorito ainda.'
+      : `${count} destinos favoritos · ${count} chamadas · qualquer data.`;
     return;
   }
   const plan = buildSearchPlan(parsed.criteria, AIRPORTS);

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
-import { presentOffers } from '../src/domain/present-offers';
+import { groupOffersByDestination, presentFavoriteOffers, presentOffers } from '../src/domain/present-offers';
 import { parseAirlines, parseCriteria } from '../src/domain/criteria';
 import type { Airport, FlightOffer, HolidayWindow } from '../src/domain/types';
 import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
@@ -23,6 +23,27 @@ describe('mediana e barganha', () => {
     expect(marked.find((offer) => offer.id === 'a')?.isBargain).toBe(true);
     expect(marked.find((offer) => offer.id === 'b')?.isBargain).toBe(false);
     expect(marked.find((offer) => offer.id === 'c')?.isBargain).toBe(false);
+  });
+});
+
+describe('agrupamento', () => {
+  it('junta o mesmo destino e mantém a ordem da lista', () => {
+    const offers = [
+      sampleOffer({ id: 'barato', destination: 'SSA', price: 100 }),
+      sampleOffer({ id: 'recife', destination: 'REC', price: 200 }),
+      sampleOffer({ id: 'caro', destination: 'SSA', price: 300 }),
+    ];
+    const groups = groupOffersByDestination(offers);
+    expect(groups.map((group) => group.map((offer) => offer.id))).toEqual([['barato', 'caro'], ['recife']]);
+  });
+
+  it('mostra só os destinos favoritos, em qualquer data', () => {
+    const offers = [
+      sampleOffer({ id: 'ssa', destination: 'SSA', price: 300, departureAt: '2026-12-02T10:00:00-03:00' }),
+      sampleOffer({ id: 'rec', destination: 'REC', price: 100 }),
+      sampleOffer({ id: 'outra', origin: 'BSB', destination: 'SSA', price: 50 }),
+    ];
+    expect(presentFavoriteOffers(offers, 'GRU', ['SSA']).map((offer) => offer.id)).toEqual(['ssa']);
   });
 });
 
@@ -52,6 +73,8 @@ describe('filtros', () => {
     expect(applyOfferFilters(offers, criteria, []).map((offer) => offer.id)).toEqual(['in']);
     const holiday = applyOfferFilters(offers, sampleCriteria({ holidayBridgeOnly: true }), windows);
     expect(holiday).toEqual([]);
+    const anyDate = applyOfferFilters(offers, sampleCriteria({ departureStart: '', departureEnd: '' }), []);
+    expect(anyDate.map((offer) => offer.id)).toEqual(['in', 'out', 'dear', 'other']);
   });
 });
 
@@ -89,6 +112,16 @@ describe('apresentação', () => {
     ];
     const visible = presentOffers(stored, sampleCriteria({ states: ['BA'], offerSort: 'date' }), sampleAirports());
     expect(visible.map((offer) => offer.id)).toEqual(['cedo', 'tarde']);
+  });
+
+  it('ordena pelo maior desconto abaixo da mediana', () => {
+    const stored: FlightOffer[] = [
+      sampleOffer({ id: 'caro', price: 1000, departureAt: '2026-11-10T10:00:00-03:00' }),
+      sampleOffer({ id: 'medio', price: 800, departureAt: '2026-11-11T10:00:00-03:00' }),
+      sampleOffer({ id: 'barato', price: 200, departureAt: '2026-11-12T10:00:00-03:00' }),
+    ];
+    const visible = presentOffers(stored, sampleCriteria({ states: ['BA'], offerSort: 'discount' }), sampleAirports());
+    expect(visible.map((offer) => offer.id)).toEqual(['barato', 'medio', 'caro']);
   });
 });
 

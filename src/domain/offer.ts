@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import type { FlightOffer, RawTicket } from './types';
 
 export function toFlightOffer(ticket: RawTicket, fetchedAt: string): FlightOffer {
@@ -18,6 +18,8 @@ export function toFlightOffer(ticket: RawTicket, fetchedAt: string): FlightOffer
     transfers: normalized.transfers,
     returnTransfers: normalized.returnTransfers,
     link: normalized.link,
+    durationToMinutes: normalized.durationToMinutes ?? null,
+    durationBackMinutes: normalized.durationBackMinutes ?? null,
     fetchedAt,
     isBargain: false,
     referencePrice: null,

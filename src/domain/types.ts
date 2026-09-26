@@ -1,8 +1,8 @@
-// Versão: 1.3
+// Versão: 1.5
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
-export type OfferSort = 'price' | 'date';
+export type OfferSort = 'price' | 'date' | 'discount';
 
 export type TripScope = 'nacional' | 'internacional';
 
@@ -52,6 +52,8 @@ export interface RawTicket {
   transfers: number;
   returnTransfers: number;
   link: string;
+  durationToMinutes?: number | null;
+  durationBackMinutes?: number | null;
 }
 
 export interface FlightOffer {
@@ -70,6 +72,8 @@ export interface FlightOffer {
   returnTransfers: number;
   link: string;
   fetchedAt: string;
+  durationToMinutes?: number | null;
+  durationBackMinutes?: number | null;
   isBargain: boolean;
   referencePrice: number | null;
   gapRatio: number | null;

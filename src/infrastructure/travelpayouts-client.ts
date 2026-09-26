@@ -1,4 +1,5 @@
-// Versão: 1.3
+// Versão: 1.5
+import { calendarDay } from '../domain/iso-date';
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
 import { TravelpayoutsError } from './travelpayouts-error';
@@ -18,6 +19,14 @@ export interface RouteMonthQuery {
 export interface FlightPriceProvider {
   searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]>;
   searchCalendarMonth?(query: RouteMonthQuery): Promise<RawTicket[]>;
+  searchCheapest?(query: CheapQuery): Promise<RawTicket | null>;
+}
+
+export interface CheapQuery {
+  token: string;
+  origin: string;
+  destination: string;
+  signal: AbortSignal;
 }
 
 export function resolveEndpoint(isDev: boolean): string {
@@ -49,6 +58,19 @@ export function calendarEndpoint(pricesEndpoint: string): string {
   return pricesEndpoint.replace('/aviasales/v3/prices_for_dates', '/v1/prices/calendar');
 }
 
+export function cheapEndpoint(pricesEndpoint: string): string {
+  return pricesEndpoint.replace('/aviasales/v3/prices_for_dates', '/v1/prices/cheap');
+}
+
+export function buildCheapUrl(query: CheapQuery, endpoint: string): string {
+  const params = new URLSearchParams({
+    origin: query.origin,
+    destination: query.destination,
+    currency: 'brl',
+  });
+  return `${endpoint}?${params.toString()}`;
+}
+
 export function buildCalendarUrl(query: RouteMonthQuery, endpoint: string): string {
   const params = new URLSearchParams({
     origin: query.origin,
@@ -74,6 +96,16 @@ export class TravelpayoutsClient implements FlightPriceProvider {
       if (!(error instanceof TravelpayoutsError) || error.code !== 'rate') throw error;
       await this.sleep(2_000, query.signal);
       return this.request(query);
+    }
+  }
+
+  async searchCheapest(query: CheapQuery): Promise<RawTicket | null> {
+    try {
+      return await this.requestCheapest(query);
+    } catch (error) {
+      if (!(error instanceof TravelpayoutsError) || error.code !== 'rate') throw error;
+      await this.sleep(2_000, query.signal);
+      return this.requestCheapest(query);
     }
   }
 
@@ -114,11 +146,21 @@ export class TravelpayoutsClient implements FlightPriceProvider {
     return this.fetchUrl(buildPricesForDatesUrl(query, this.endpoint, page), query);
   }
 
+  private async requestCheapest(query: CheapQuery): Promise<RawTicket | null> {
+    const response = await this.fetchUrl(buildCheapUrl(query, cheapEndpoint(this.endpoint)), query);
+    if (response.status === 429) throw new TravelpayoutsError('Limite de chamadas da Travelpayouts.', 429, 'rate');
+    if (response.status === 401 || response.status === 403) {
+      throw new TravelpayoutsError('Token recusado. Confira em Perfil → API token.', response.status, 'auth');
+    }
+    if (!response.ok) throw new TravelpayoutsError('A Travelpayouts recusou a consulta.', response.status, 'api');
+    return parseCheapBody(await readBody(response), query);
+  }
+
   private async fetchCalendar(query: RouteMonthQuery): Promise<Response> {
     return this.fetchUrl(buildCalendarUrl(query, calendarEndpoint(this.endpoint)), query);
   }
 
-  private async fetchUrl(url: string, query: RouteMonthQuery): Promise<Response> {
+  private async fetchUrl(url: string, query: { token: string; signal: AbortSignal }): Promise<Response> {
     try {
       return await this.fetchFn(url, {
         signal: query.signal,
@@ -151,6 +193,51 @@ export function parsePricesBody(body: unknown, query: RouteMonthQuery): RawTicke
   return rowsFromData(record.data)
     .map((row) => toTicket(row, query, currency))
     .filter((ticket): ticket is RawTicket => ticket !== null);
+}
+
+export function parseCheapBody(body: unknown, query: CheapQuery): RawTicket | null {
+  const record = asRecord(body);
+  if (!record) throw new TravelpayoutsError('Resposta inválida da Travelpayouts.', null, 'api');
+  if (record.success === false) {
+    const message = text(record.error) || 'A Travelpayouts recusou a consulta.';
+    const code = /token|unauthor/i.test(message) ? 'auth' : 'api';
+    throw new TravelpayoutsError(clip(message), null, code);
+  }
+  const data = asRecord(record.data);
+  const destination = query.destination.toUpperCase();
+  const bucket = asRecord(data?.[destination]) ?? asRecord(data?.[query.destination]);
+  if (!bucket) return null;
+  const currency = text(record.currency).toUpperCase() || 'BRL';
+  const route: RouteMonthQuery = { ...query, month: '' };
+  let best: RawTicket | null = null;
+  for (const [stops, value] of Object.entries(bucket)) {
+    const row = asRecord(value);
+    if (!row) continue;
+    const ticket = toTicket({ ...row, transfers: row.transfers ?? stopCount(stops) }, route, currency);
+    if (!ticket) continue;
+    const priced = { ...ticket, link: ticket.link || roundTripLink(ticket) };
+    if (!best || priced.price < best.price) best = priced;
+  }
+  return best;
+}
+
+function stopCount(stops: string): number {
+  const parsed = Number(stops);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function roundTripLink(ticket: RawTicket): string {
+  const go = compactDay(ticket.departureAt);
+  const back = compactDay(ticket.returnAt ?? '');
+  if (!go || !back) return '';
+  return `https://www.aviasales.com/search/${ticket.origin}${go}${ticket.destination}${back}1`;
+}
+
+function compactDay(iso: string): string {
+  const day = calendarDay(iso);
+  const [, month, date] = day.split('-');
+  if (!month || !date) return '';
+  return `${date}${month}`;
 }
 
 export function parseCalendarBody(body: unknown, query: RouteMonthQuery): RawTicket[] {
@@ -188,6 +275,8 @@ function toTicket(value: unknown, query: RouteMonthQuery, currency: string): Raw
     returnAt: returnAt || null,
     transfers: numberValue(row.transfers) ?? 0,
     returnTransfers: numberValue(row.return_transfers) ?? 0,
+    durationToMinutes: flightMinutes(row.duration_to) ?? (returnAt ? null : flightMinutes(row.duration)),
+    durationBackMinutes: returnAt ? flightMinutes(row.duration_back) : null,
     link: absoluteLink(text(row.link), query.token),
   };
 }
@@ -231,6 +320,12 @@ function numberValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function flightMinutes(value: unknown): number | null {
+  const minutes = numberValue(value);
+  if (minutes === null || minutes <= 0) return null;
+  return Math.round(minutes);
 }
 
 function clip(message: string): string {

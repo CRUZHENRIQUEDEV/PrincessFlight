@@ -1,7 +1,7 @@
 // Versão: 1.0
 import { describe, expect, it } from 'vitest';
 import { formatRangeLabel, pickRangeDay } from '../src/domain/date-range';
-import { mergeOffers } from '../src/domain/offer-archive';
+import { collectCatalog, mergeOffers } from '../src/domain/offer-archive';
 import { tomorrowIso } from '../src/domain/iso-date';
 import { sampleOffer } from './fixtures';
 
@@ -17,5 +17,10 @@ describe('calendário e arquivo de preços', () => {
     const older = sampleOffer({ id: 'antigo', fetchedAt: '2026-09-01T00:00:00Z' });
     const newer = sampleOffer({ id: 'novo', fetchedAt: '2026-09-20T00:00:00Z' });
     expect(mergeOffers([older], [newer]).map((offer) => offer.id)).toEqual(['novo', 'antigo']);
+    const shared = collectCatalog(
+      [{ offers: [sampleOffer({ id: 'da-pesquisa', destination: 'SSA' })] }],
+      [sampleOffer({ id: 'do-arquivo', destination: 'REC' })],
+    );
+    expect(shared.map((offer) => offer.id).sort()).toEqual(['da-pesquisa', 'do-arquivo']);
   });
 });

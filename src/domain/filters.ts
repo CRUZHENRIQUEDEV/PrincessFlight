@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import { calendarDay } from './iso-date';
 import type { Airport, FlightOffer, HolidayWindow, SearchCriteria } from './types';
 
@@ -36,6 +36,7 @@ function matchesDestination(
 }
 
 function matchesDate(offer: FlightOffer, criteria: SearchCriteria): boolean {
+  if (!criteria.departureStart && !criteria.departureEnd) return true;
   const day = calendarDay(offer.departureAt);
   if (!day || !criteria.departureStart || !criteria.departureEnd) return false;
   return day >= criteria.departureStart && day <= criteria.departureEnd;

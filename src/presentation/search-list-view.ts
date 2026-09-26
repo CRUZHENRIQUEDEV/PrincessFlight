@@ -1,10 +1,11 @@
-// Versão: 1.2
+// Versão: 1.4
 import { searchCounter, type SavedSearch } from '../domain/saved-search';
 
 export class SearchListView {
   private editingId: string | null = null;
   private lastSearches: readonly SavedSearch[] = [];
   private lastActiveId = '';
+  private offerCounts = new Map<string, number>();
 
   constructor(
     private readonly list: HTMLElement,
@@ -17,9 +18,10 @@ export class SearchListView {
     this.list.addEventListener('click', (event) => this.onClick(event));
   }
 
-  render(searches: readonly SavedSearch[], activeId: string): void {
+  render(searches: readonly SavedSearch[], activeId: string, offerCounts?: ReadonlyMap<string, number>): void {
     this.lastSearches = searches;
     this.lastActiveId = activeId;
+    this.offerCounts = new Map(offerCounts ?? []);
     const editing = this.list.querySelector('.search-card__rename');
     if (this.editingId && editing instanceof HTMLInputElement && document.activeElement === editing) return;
     this.paint();
@@ -36,7 +38,7 @@ export class SearchListView {
     const article = document.createElement('article');
     article.className = cardClass(active, search.running);
     article.dataset.search = search.id;
-    article.append(this.title(search), meta(search), actions(search));
+    article.append(this.title(search), meta(search, this.offerCounts.get(search.id)), actions(search));
     return article;
   }
 
@@ -119,11 +121,13 @@ function cardClass(active: boolean, running: boolean): string {
   return classes.join(' ');
 }
 
-function meta(search: SavedSearch): HTMLParagraphElement {
+function meta(search: SavedSearch, offerCount: number | undefined): HTMLParagraphElement {
   const line = document.createElement('p');
   line.className = 'search-card__meta';
   const state = search.running ? 'Rodando' : 'Parada';
-  line.textContent = `${state} · ${searchCounter(search.offers.length, search.progress)}`;
+  const places = search.favoriteDestinations.length === 1 ? '1 destino' : `${search.favoriteDestinations.length} destinos`;
+  const kind = search.mode === 'favorites' ? `Favoritos · ${places} · ` : '';
+  line.textContent = `${kind}${state} · ${searchCounter(offerCount ?? search.offers.length, search.progress)}`;
   return line;
 }
 

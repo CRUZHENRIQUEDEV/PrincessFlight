@@ -1,4 +1,4 @@
-<!-- Versão: 2.8 -->
+<!-- Versão: 3.2 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -16,7 +16,7 @@
           <h2>Pesquisas</h2>
           <button id="new-search" class="button button--quiet" type="button">Nova</button>
         </div>
-        <p class="help">Cada pesquisa ligada atualiza os preços em segundo plano. Parar vale só para ela.</p>
+        <p class="help">Destinos favoritos já fica na lista. Selecione essa pesquisa e adicione as cidades. Cada pesquisa ligada atualiza os preços em segundo plano.</p>
         <p id="search-count" class="help"></p>
         <div id="search-list" class="search-list"></div>
       </aside>
@@ -61,9 +61,28 @@
               <label><input id="scope-nacional" type="radio" name="scope" value="nacional" checked /> Nacional</label>
               <label><input id="scope-internacional" type="radio" name="scope" value="internacional" /> Internacional</label>
             </div>
+            <label class="toolbar__interval">
+              Próxima rodada (min)
+              <input id="repeat-minutes" type="number" min="1" step="1" value="15" />
+            </label>
             <button id="search-button" class="button" type="submit">Buscar</button>
           </div>
           <p id="call-estimate" class="estimate" aria-live="polite"></p>
+          <label class="notes-field">
+            Anotações
+            <textarea id="search-notes" rows="4" placeholder="Escreva o que quiser sobre esta pesquisa"></textarea>
+          </label>
+          <div id="favorites-panel" class="favorites-panel" hidden>
+            <p class="help">Pesquisa automática dos destinos favoritos. Cada destino entra com a ida e a volta mais baratas, em qualquer data.</p>
+            <div class="favorites-add">
+              <label>
+                Adicionar destino
+                <select id="favorite-destination"></select>
+              </label>
+              <button id="favorite-add" class="button" type="button">Adicionar</button>
+            </div>
+            <ul id="favorite-chips" class="favorite-chips"></ul>
+          </div>
           <ol id="search-feed" class="search-feed" aria-live="polite"></ol>
           <details id="more-filters" class="drawer">
             <summary>Filtros e alerta</summary>
@@ -128,10 +147,6 @@
                   Pausa entre chamadas (segundos)
                   <input id="delay-seconds" type="number" min="2" step="1" value="5" />
                 </label>
-                <label>
-                  Repetir em segundo plano a cada (minutos, 0 = 15)
-                  <input id="repeat-minutes" type="number" min="0" step="1" value="0" />
-                </label>
               </div>
             </div>
           </details>
@@ -179,6 +194,7 @@
               </label>
               <div class="segment" role="radiogroup" aria-label="Ordenação das ofertas">
                 <label><input id="sort-price" type="radio" name="offer-sort" value="price" checked /> Preço</label>
+                <label><input id="sort-discount" type="radio" name="offer-sort" value="discount" /> Desconto</label>
                 <label><input id="sort-date" type="radio" name="offer-sort" value="date" /> Data</label>
               </div>
             </div>
@@ -193,6 +209,16 @@
       <aside class="offer-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="offer-drawer-title">
         <header class="offer-drawer__head">
           <h2 id="offer-drawer-title">Oferta</h2>
+          <button class="button button--quiet" type="button" data-close>Fechar</button>
+        </header>
+        <div class="offer-drawer__body"></div>
+      </aside>
+    </div>
+    <div id="search-drawer" class="offer-drawer" hidden>
+      <button class="offer-drawer__backdrop" type="button" data-close aria-label="Fechar detalhes da pesquisa"></button>
+      <aside class="offer-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="search-drawer-title">
+        <header class="offer-drawer__head">
+          <h2 id="search-drawer-title">Pesquisa</h2>
           <button class="button button--quiet" type="button" data-close>Fechar</button>
         </header>
         <div class="offer-drawer__body"></div>
