@@ -1,11 +1,11 @@
-// Versão: 1.6
+// Versão: 1.7
 import { calendarDay } from '../domain/iso-date';
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
 import { TravelpayoutsError } from './travelpayouts-error';
 
 const DEV_ENDPOINT = '/tp-api/aviasales/v3/prices_for_dates';
-const PROD_ENDPOINT = 'https://api.travelpayouts.com/aviasales/v3/prices_for_dates';
+const PROD_ENDPOINT = 'https://princess-flight.cruzhenriquedev.workers.dev/aviasales/v3/prices_for_dates';
 
 export interface RouteMonthQuery {
   token: string;
@@ -175,6 +175,7 @@ export class TravelpayoutsClient implements FlightPriceProvider {
   }
 
   private networkMessage(): string {
+    if (this.endpoint.includes('workers.dev')) return 'A ponte de produção não respondeu. Tente de novo em instantes.';
     if (this.endpoint.startsWith('http')) {
       return 'A Travelpayouts não autoriza chamada direta do navegador. Rode npm run dev neste computador, que faz a ponte para a API.';
     }
