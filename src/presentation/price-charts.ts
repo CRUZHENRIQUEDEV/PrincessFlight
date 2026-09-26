@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import {
   BarController,
   BarElement,
@@ -12,6 +12,7 @@ import {
   Tooltip,
 } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
+import { placeCaption } from '../data/places';
 import { buildPriceChartModel, type PriceChartModel } from '../domain/price-series';
 import type { Airport, FlightOffer } from '../domain/types';
 import { formatPrice } from './format';
@@ -76,7 +77,7 @@ function destinationConfig(model: PriceChartModel): ChartConfiguration<'bar'> {
   return {
     type: 'bar',
     data: {
-      labels: model.bars.map((bar) => bar.city),
+      labels: model.bars.map((bar) => placeCaption(bar.iata, bar.city)),
       datasets: [{
         data: model.bars.map((bar) => bar.price),
         backgroundColor: model.bars.map((bar) => (bar.isBargain ? BARGAIN : ACCENT)),
@@ -134,6 +135,9 @@ function axisScales(currency: string, horizontalBars: boolean) {
       callback: (value: string | number) => formatPrice(Number(value), currency),
     },
   };
-  const category = { grid: { display: false }, ticks: { color: INK } };
+  const category = {
+    grid: { display: false },
+    ticks: { color: INK, autoSkip: !horizontalBars, font: horizontalBars ? { size: 11 } : undefined },
+  };
   return horizontalBars ? { x: value, y: category } : { x: category, y: value };
 }

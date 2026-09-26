@@ -1,4 +1,5 @@
-// Versão: 1.4
+// Versão: 1.5
+import { placeOf } from '../data/places';
 import { airlineBookingLink } from '../domain/airline-link';
 import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
@@ -45,7 +46,8 @@ export class OfferDrawer {
     this.root.hidden = false;
     const title = this.root.querySelector('#offer-drawer-title');
     const airport = airports.find((item) => item.iata === offer.destination);
-    if (title) title.textContent = airport?.city ?? offer.destination;
+    const place = placeOf(offer.destination);
+    if (title) title.textContent = place?.city ?? airport?.city ?? offer.destination;
     const panel = this.root.querySelector('.offer-drawer__panel');
     if (!panel) return;
     const body = panel.querySelector('.offer-drawer__body');
@@ -90,15 +92,23 @@ function routeBlock(offer: FlightOffer, airports: readonly Airport[]): HTMLEleme
 
 function place(iata: string, airports: readonly Airport[]): HTMLElement {
   const airport = airports.find((item) => item.iata === iata);
+  const place = placeOf(iata);
   const block = document.createElement('div');
   const city = document.createElement('p');
   city.className = 'offer-sheet__city';
-  city.textContent = airport?.city ?? iata;
+  city.textContent = place?.city ?? airport?.city ?? iata;
   const code = document.createElement('p');
   code.className = 'offer-sheet__code';
-  code.textContent = airport ? `${airport.name} · ${airport.iata}` : iata;
+  code.textContent = subtitle(place?.country, airport, iata);
   block.append(city, code);
   return block;
+}
+
+function subtitle(country: string | undefined, airport: Airport | undefined, iata: string): string {
+  if (country && airport) return `${country} · ${airport.name} · ${airport.iata}`;
+  if (country) return country;
+  if (airport) return `${airport.name} · ${airport.iata}`;
+  return iata;
 }
 
 function arrow(): HTMLElement {

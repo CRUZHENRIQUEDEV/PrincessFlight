@@ -1,5 +1,6 @@
-// Versão: 2.7
+// Versão: 2.8
 import { AIRPORTS } from '../data/airports';
+import { placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
 import { calendarDay, todayIso } from '../domain/iso-date';
@@ -465,7 +466,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     const airport = AIRPORTS.find((item) => item.iata === offer.destination);
     drawer.show(offer, AIRPORTS, drawerState, notes, {
       pinned: favorites?.favoriteDestinations.includes(offer.destination) ?? false,
-      city: airport?.city ?? offer.destination,
+      city: placeOf(offer.destination)?.city ?? airport?.city ?? offer.destination,
       onToggle: () => changeFavorite(offer.destination, !(favorites?.favoriteDestinations.includes(offer.destination) ?? false)),
     });
   }

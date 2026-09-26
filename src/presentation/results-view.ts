@@ -1,4 +1,5 @@
-// Versão: 1.4
+// Versão: 1.5
+import { placeOf } from '../data/places';
 import { groupOffersByDestination } from '../domain/present-offers';
 import type { Airport, FlightOffer } from '../domain/types';
 import { airlineLabel, formatGap, formatPrice, formatStops, formatWhen } from './format';
@@ -118,12 +119,13 @@ function heading(offer: FlightOffer, airport: Airport | undefined): HTMLElement 
   const top = document.createElement('div');
   top.className = 'offer__top';
   const place = document.createElement('div');
+  const named = placeOf(offer.destination);
   const city = document.createElement('p');
   city.className = 'offer__city';
-  city.textContent = airport?.city ?? offer.destination;
+  city.textContent = named?.city ?? airport?.city ?? offer.destination;
   const code = document.createElement('p');
   code.className = 'offer__code';
-  code.textContent = airport?.iata ?? offer.destination;
+  code.textContent = named?.country ?? airport?.iata ?? offer.destination;
   place.append(city, code);
   const price = document.createElement('p');
   price.className = 'offer__price';
