@@ -1,4 +1,4 @@
-// Versão: 3.0
+// Versão: 3.1
 import { AIRPORTS } from '../data/airports';
 import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
@@ -104,6 +104,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     setFresh: (ids) => { freshIds = new Set(ids); },
     note: (message) => pushNote(feed, message),
     onDeals: (search, batch) => announceDeals(doc, opened.store, sound, heard, search, batch, setAlertStatus),
+    knownOffers: () => catalog,
   });
 
   populateLocations(doc, AIRPORTS);

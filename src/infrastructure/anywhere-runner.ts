@@ -1,4 +1,6 @@
-// Versão: 1.0
+// Versão: 1.1
+import { freshOriginOffers } from '../domain/known-offers';
+import { mergeOffers } from '../domain/offer-archive';
 import { toFlightOffer } from '../domain/offer';
 import type { FlightOffer } from '../domain/types';
 import type { FlightPriceProvider } from './travelpayouts-client';
@@ -9,6 +11,8 @@ export interface AnywhereRoundOptions {
   provider: FlightPriceProvider;
   signal: AbortSignal;
   now: () => string;
+  knownOffers?: () => readonly FlightOffer[];
+  freshForMs?: number;
 }
 
 /** Uma chamada: o menor preço de ida e volta de cada destino já guardado no cache. */
@@ -20,5 +24,7 @@ export async function runAnywhereRound(options: AnywhereRoundOptions): Promise<F
     origin: options.origin,
     signal: options.signal,
   });
-  return tickets.map((ticket) => toFlightOffer(ticket, options.now()));
+  const remote = tickets.map((ticket) => toFlightOffer(ticket, options.now()));
+  const local = freshOriginOffers(options.knownOffers?.() ?? [], options.origin, options.now(), options.freshForMs ?? 0);
+  return mergeOffers(local, remote);
 }

@@ -1,10 +1,10 @@
-// Versão: 1.0
+// Versão: 1.1
 import { describe, expect, it } from 'vitest';
 import { runSearch } from '../src/infrastructure/search-runner';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
 import type { FlightPriceProvider, RouteMonthQuery } from '../src/infrastructure/travelpayouts-client';
 import type { RawTicket } from '../src/domain/types';
-import { sampleAirports, sampleCriteria } from './fixtures';
+import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
 
 describe('fila de busca', () => {
   it('consulta cada destino do mês e pausa entre as chamadas', async () => {
@@ -30,6 +30,42 @@ describe('fila de busca', () => {
     expect(result.status).toBe('done');
     expect(result.offers).toHaveLength(2);
     expect(result.offers[0].origin).toBe('GRU');
+  });
+
+  it('pula a API quando a mesma rota já está salva e ainda vale', async () => {
+    const calls: string[] = [];
+    const provider: FlightPriceProvider = {
+      async searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+        calls.push(query.destination);
+        return [ticket(query.destination)];
+      },
+    };
+    const saved = sampleOffer({ id: 'salva', price: 640, fetchedAt: '2026-09-26T11:50:00Z' });
+    const result = await runSearch({
+      ...options(provider),
+      knownOffers: () => [saved],
+      freshForMs: 60 * 60 * 1000,
+    });
+    expect(calls).toEqual(['FOR']);
+    expect(result.requestCount).toBe(1);
+    expect(result.offers.map((offer) => offer.id)).toContain('salva');
+  });
+
+  it('consulta de novo quando o preço salvo já passou da janela', async () => {
+    const calls: string[] = [];
+    const provider: FlightPriceProvider = {
+      async searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+        calls.push(query.destination);
+        return [];
+      },
+    };
+    const saved = sampleOffer({ fetchedAt: '2026-09-20T11:50:00Z' });
+    await runSearch({
+      ...options(provider),
+      knownOffers: () => [saved],
+      freshForMs: 60 * 60 * 1000,
+    });
+    expect(calls).toEqual(['SSA', 'FOR']);
   });
 
   it('para na primeira falha de token', async () => {

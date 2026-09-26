@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import { describe, expect, it } from 'vitest';
 import { formatPrice } from '../src/presentation/format';
 import { describeConsulting, describeRoute, formatMonthLabel } from '../src/presentation/search-feedback';
@@ -29,5 +29,16 @@ describe('relato da busca', () => {
       cheapest: null,
       error: null,
     })).toBe('4 de 16 · Lisboa · dez/2026 · nenhum preço guardado neste mês; a API só devolve tarifas que alguém já buscou · 4 ofertas no total');
+    expect(describeRoute({
+      completedCalls: 1,
+      totalCalls: 2,
+      city: 'Salvador',
+      month: '2026-11',
+      foundNow: 1,
+      totalOffers: 1,
+      cheapest: sampleOffer(),
+      error: null,
+      reused: true,
+    })).toBe('1 de 2 · Salvador · nov/2026 · 1 oferta já salva neste navegador · 1 oferta no total');
   });
 });

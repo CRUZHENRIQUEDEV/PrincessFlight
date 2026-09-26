@@ -1,5 +1,6 @@
-// Versão: 1.6
+// Versão: 1.7
 import { AIRPORTS } from '../data/airports';
+import { freshRouteOffers } from '../domain/known-offers';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
 import { refreshEveryMinutes, rescheduleRound, type SavedSearch } from '../domain/saved-search';
@@ -30,6 +31,7 @@ export interface SearchDeskDeps {
   setFresh(ids: readonly string[]): void;
   note(message: string): void;
   onDeals(search: SavedSearch, offers: readonly FlightOffer[]): void;
+  knownOffers?: () => readonly FlightOffer[];
 }
 
 export interface SearchDesk {
@@ -103,9 +105,12 @@ function refusalMessage(search: SavedSearch, token: string): string | null {
 function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor'): void {
   const search = deps.getSearch(id);
   if (!search) return;
+  const known = deps.knownOffers?.() ?? [];
+  const now = new Date().toISOString();
   if (search.mode === 'favorites') {
     const total = search.favoriteDestinations.length;
-    publishStart(deps, id, mode, total, `Busca iniciada · ${total} destinos favoritos · ${total} chamadas.`);
+    const saved = countFreshFavorites(search, known, now);
+    publishStart(deps, id, mode, total, startLine(total, total, saved, 'destinos favoritos'));
     return;
   }
   if (search.mode === 'anywhere') {
@@ -113,7 +118,34 @@ function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor
     return;
   }
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
-  publishStart(deps, id, mode, plan.callCount, `Busca iniciada · ${plan.destinations.length} destinos · ${plan.callCount} chamadas.`);
+  const saved = countFreshPairs(search, known, now, plan.destinations.map((airport) => airport.iata), plan.months);
+  publishStart(deps, id, mode, plan.callCount, startLine(plan.destinations.length, plan.callCount, saved, 'destinos'));
+}
+
+function startLine(destinations: number, calls: number, saved: number, label: string): string {
+  if (saved <= 0) return `Busca iniciada · ${destinations} ${label} · ${calls} chamadas.`;
+  const kept = saved === 1 ? '1 já salva neste navegador' : `${saved} já salvas neste navegador`;
+  return `Busca iniciada · ${destinations} ${label} · ${kept} · ${Math.max(0, calls - saved)} chamadas.`;
+}
+
+function countFreshFavorites(search: SavedSearch, known: readonly FlightOffer[], now: string): number {
+  const freshForMs = refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000;
+  return search.favoriteDestinations.filter((destination) =>
+    freshRouteOffers(known, search.criteria.originIata, destination, now, freshForMs).length > 0,
+  ).length;
+}
+
+function countFreshPairs(
+  search: SavedSearch,
+  known: readonly FlightOffer[],
+  now: string,
+  destinations: readonly string[],
+  months: readonly string[],
+): number {
+  const freshForMs = refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000;
+  return destinations.flatMap((destination) => months.map((month) => ({ destination, month })))
+    .filter((pair) => freshRouteOffers(known, search.criteria.originIata, pair.destination, now, freshForMs, pair.month).length > 0)
+    .length;
 }
 
 function publishStart(
@@ -178,6 +210,8 @@ async function oneRound(
     signal,
     sleep: delay,
     now: () => new Date().toISOString(),
+    knownOffers: () => deps.knownOffers?.() ?? [],
+    freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
     onProgress: (progress) => {
       if (stale()) return;
       showConsulting(deps, search.id, progress.completedCalls, progress.totalCalls, progress.destination, progress.month);
@@ -215,6 +249,8 @@ async function anywhereRound(
       provider: deps.provider,
       signal,
       now: () => new Date().toISOString(),
+      knownOffers: () => deps.knownOffers?.() ?? [],
+      freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
     });
     if (stale()) return 'stop';
     if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
@@ -248,6 +284,8 @@ function favoriteRound(
     sleep: delay,
     delaySeconds: search.criteria.delayBetweenCallsSeconds,
     now: () => new Date().toISOString(),
+    knownOffers: () => deps.knownOffers?.() ?? [],
+    freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
     onProgress: (done, total, destination) => {
       if (stale()) return;
       showConsulting(deps, search.id, done, total, destination, 'qualquer data');
@@ -258,7 +296,9 @@ function favoriteRound(
       const city = airport?.city ?? progress.destination;
       const found = progress.ticketCount === 0
         ? 'nenhum preço guardado; a API só devolve tarifas que alguém já buscou'
-        : 'menor preço encontrado';
+        : progress.reused
+          ? 'preço já salvo neste navegador'
+          : 'menor preço encontrado';
       const line = `${progress.completedCalls} de ${progress.totalCalls} · ${city} · qualquer data · ${found}`;
       deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
       if (!deps.isActive(search.id)) return;

@@ -1,4 +1,5 @@
-// Versão: 1.3
+// Versão: 1.4
+import { freshRouteOffers } from '../domain/known-offers';
 import { toFlightOffer } from '../domain/offer';
 import { buildSearchPlan } from '../domain/search-plan';
 import type { Airport, FlightOffer, RawTicket, SearchCriteria } from '../domain/types';
@@ -37,6 +38,8 @@ export interface RunSearchOptions {
   signal: AbortSignal;
   sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   now: () => string;
+  knownOffers?: () => readonly FlightOffer[];
+  freshForMs?: number;
   onProgress?: (progress: SearchProgress) => void;
   onBatch?: (offers: FlightOffer[]) => void;
   onRoute?: (report: RouteReport) => void;
@@ -51,12 +54,14 @@ export interface RouteReport {
   totalOffers: number;
   cheapest: FlightOffer | null;
   error: string | null;
+  reused: boolean;
 }
 
 interface FetchOutcome {
   kind: 'ok' | 'error' | 'stop';
   status?: 'stopped' | 'error';
   message: string | null;
+  reused: boolean;
 }
 
 export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
@@ -80,14 +85,14 @@ export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
     });
     const before = kept.length;
     const outcome = await fetchPair(options, pair.destination, pair.month, kept, seen);
-    requestCount += 1;
+    if (!outcome.reused) requestCount += 1;
     if (outcome.kind === 'error' && outcome.message) {
       errors.push({ destination: pair.destination, month: pair.month, message: outcome.message });
     }
     options.onRoute?.(routeReport(pair, index + 1, pairs.length, kept, before, outcome));
     options.onBatch?.([...kept]);
     if (outcome.kind === 'stop') return finish(outcome.status ?? 'stopped', kept, requestCount, errors, outcome.message);
-    const paused = await pauseBeforeNext(options, index, pairs.length, kept, requestCount, errors);
+    const paused = await pauseBeforeNext(options, index, pairs.length, kept, requestCount, errors, outcome.reused);
     if (paused) return paused;
   }
 
@@ -120,27 +125,42 @@ async function fetchPair(
   kept: FlightOffer[],
   seen: Set<string>,
 ): Promise<FetchOutcome> {
+  const local = freshRouteOffers(
+    options.knownOffers?.() ?? [],
+    options.criteria.originIata,
+    destination,
+    options.now(),
+    options.freshForMs ?? 0,
+    month,
+  );
+  if (local.length > 0) {
+    keepNew(local, kept, seen);
+    return { kind: 'ok', message: null, reused: true };
+  }
   try {
     const tickets = await collectTickets(options, destination, month);
-    for (const ticket of tickets) {
-      const offer = toFlightOffer(ticket, options.now());
-      if (seen.has(offer.id)) continue;
-      seen.add(offer.id);
-      kept.push(offer);
-    }
-    return { kind: 'ok', message: null };
+    keepNew(tickets.map((ticket) => toFlightOffer(ticket, options.now())), kept, seen);
+    return { kind: 'ok', message: null, reused: false };
   } catch (error) {
     return outcomeFromError(error);
   }
 }
 
+function keepNew(offers: readonly FlightOffer[], kept: FlightOffer[], seen: Set<string>): void {
+  for (const offer of offers) {
+    if (seen.has(offer.id)) continue;
+    seen.add(offer.id);
+    kept.push(offer);
+  }
+}
+
 function outcomeFromError(error: unknown): FetchOutcome {
-  if (isAbortError(error)) return { kind: 'stop', status: 'stopped', message: null };
+  if (isAbortError(error)) return { kind: 'stop', status: 'stopped', message: null, reused: false };
   if (isTravelpayoutsError(error) && FATAL.has(error.code)) {
-    return { kind: 'stop', status: 'error', message: error.message };
+    return { kind: 'stop', status: 'error', message: error.message, reused: false };
   }
   const message = isTravelpayoutsError(error) ? error.message : 'Falha ao consultar esta rota.';
-  return { kind: 'error', message };
+  return { kind: 'error', message, reused: false };
 }
 
 async function pauseBeforeNext(
@@ -150,8 +170,9 @@ async function pauseBeforeNext(
   kept: FlightOffer[],
   requestCount: number,
   errors: RouteError[],
+  reused: boolean,
 ): Promise<RunResult | null> {
-  if (index >= total - 1) return null;
+  if (reused || index >= total - 1) return null;
   try {
     await options.sleep(options.criteria.delayBetweenCallsSeconds * 1000, options.signal);
     return null;
@@ -179,6 +200,7 @@ function routeReport(
     totalOffers: kept.length,
     cheapest: cheapestOf(added),
     error: outcome.kind === 'error' ? outcome.message : null,
+    reused: outcome.reused,
   };
 }
 
