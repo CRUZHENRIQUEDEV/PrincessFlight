@@ -1,6 +1,8 @@
-// Versão: 1.1
+// Versão: 1.3
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
+
+export type OfferSort = 'price' | 'date';
 
 export type TripScope = 'nacional' | 'internacional';
 
@@ -32,6 +34,8 @@ export interface SearchCriteria {
   delayBetweenCallsSeconds: number;
   repeatEveryMinutes: number;
   bargainsOnly: boolean;
+  includeRegularPrices: boolean;
+  offerSort: OfferSort;
 }
 
 export interface RawTicket {

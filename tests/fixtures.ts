@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.3
 import type { Airport, FlightOffer, SearchCriteria } from '../src/domain/types';
 
 export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchCriteria {
@@ -18,6 +18,8 @@ export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchC
     delayBetweenCallsSeconds: 5,
     repeatEveryMinutes: 0,
     bargainsOnly: false,
+    includeRegularPrices: true,
+    offerSort: 'price',
     ...overrides,
   };
 }

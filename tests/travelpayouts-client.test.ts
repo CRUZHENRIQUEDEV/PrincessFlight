@@ -1,6 +1,6 @@
-// Versão: 1.1
+// Versão: 1.2
 import { describe, expect, it, vi } from 'vitest';
-import { buildPricesForDatesUrl, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
+import { buildPricesForDatesUrl, buildCalendarUrl, calendarEndpoint, parseCalendarBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
 import type { RouteMonthQuery } from '../src/infrastructure/travelpayouts-client';
 
@@ -19,6 +19,38 @@ describe('cliente Travelpayouts', () => {
     expect(url.searchParams.get('one_way')).toBe('false');
     expect(url.searchParams.get('origin')).toBe('GRU');
     expect(url.searchParams.get('token')).toBeNull();
+    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('unique')).toBe('false');
+  });
+
+  it('sem preços normais pede só a tarifa mais barata', () => {
+    const url = new URL(buildPricesForDatesUrl(
+      { ...query, includeRegularPrices: false },
+      'https://api.travelpayouts.com/aviasales/v3/prices_for_dates',
+    ));
+    expect(url.searchParams.get('limit')).toBe('1');
+  });
+
+  it('lê o calendário do mês quando os dias vêm num objeto', () => {
+    const endpoint = calendarEndpoint('https://api.travelpayouts.com/aviasales/v3/prices_for_dates');
+    const url = new URL(buildCalendarUrl(query, endpoint));
+    expect(url.pathname).toBe('/v1/prices/calendar');
+    expect(url.searchParams.get('depart_date')).toBe('2026-11');
+    const tickets = parseCalendarBody({
+      success: true,
+      currency: 'brl',
+      data: {
+        '2026-11-04': {
+          price: 890,
+          airline: 'G3',
+          flight_number: 12,
+          departure_at: '2026-11-04T09:00:00-03:00',
+          return_at: '2026-11-11T18:00:00-03:00',
+          transfers: 0,
+        },
+      },
+    }, query);
+    expect(tickets[0]).toMatchObject({ price: 890, airline: 'G3', departureAt: '2026-11-04T09:00:00-03:00' });
   });
 
   it('guarda a origem pedida, mesmo quando a API devolve o código da cidade', () => {
@@ -82,7 +114,31 @@ describe('cliente Travelpayouts', () => {
     await expect(client.searchRouteMonth(query)).rejects.toBeInstanceOf(TravelpayoutsError);
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
+
+  it('com preços normais lê a página seguinte quando a primeira vem cheia', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(pageBody(100)))
+      .mockResolvedValueOnce(jsonResponse(pageBody(2, 100)));
+    const client = new TravelpayoutsClient(fetchFn, async () => undefined, 'https://api.exemplo');
+    const tickets = await client.searchRouteMonth({ ...query, includeRegularPrices: true });
+    expect(tickets).toHaveLength(102);
+    const second = new URL(String(fetchFn.mock.calls[1]?.[0]));
+    expect(second.searchParams.get('page')).toBe('2');
+  });
 });
+
+function pageBody(count: number, offset = 0): unknown {
+  return {
+    success: true,
+    currency: 'brl',
+    data: Array.from({ length: count }, (_, index) => ({
+      price: 500 + offset + index,
+      departure_at: '2026-11-18T19:25:00-03:00',
+      airline: 'AD',
+      flight_number: offset + index + 1,
+    })),
+  };
+}
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });

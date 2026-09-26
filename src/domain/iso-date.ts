@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 
 /** Soma dias civis sem deslocar a data por fuso horário. */
 export function addDays(isoDate: string, days: number): string {
@@ -24,6 +24,10 @@ export function todayIso(now = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function tomorrowIso(today = todayIso()): string {
+  return addDays(today, 1);
 }
 
 /** Meses YYYY-MM inclusivos. Trava em 24 para um intervalo acidental enorme. */

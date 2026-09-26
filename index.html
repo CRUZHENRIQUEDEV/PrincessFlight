@@ -1,4 +1,4 @@
-<!-- Versão: 2.0 -->
+<!-- Versão: 2.7 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -11,6 +11,16 @@
   </head>
   <body>
     <div class="shell">
+      <aside class="sidebar" aria-label="Pesquisas salvas">
+        <div class="sidebar__head">
+          <h2>Pesquisas</h2>
+          <button id="new-search" class="button button--quiet" type="button">Nova</button>
+        </div>
+        <p class="help">As que já estão buscando continuam em segundo plano.</p>
+        <p id="search-count" class="help"></p>
+        <div id="search-list" class="search-list"></div>
+      </aside>
+      <div class="workspace">
       <header class="topbar">
         <div class="brand">
           <span class="dots" aria-hidden="true"></span>
@@ -30,14 +40,23 @@
               Origem
               <select id="origin"></select>
             </label>
-            <label>
-              Ida a partir de
-              <input id="date-start" type="date" required />
-            </label>
-            <label>
-              Ida até
-              <input id="date-end" type="date" required />
-            </label>
+            <div class="date-field">
+              <span class="date-field__label">Datas da ida</span>
+              <button id="date-open" class="date-open" type="button" aria-haspopup="dialog" aria-expanded="false">Escolha as datas</button>
+              <input id="date-start" type="hidden" />
+              <input id="date-end" type="hidden" />
+              <div id="date-popover" class="date-popover" hidden role="dialog" aria-label="Intervalo de datas">
+                <div class="date-popover__nav">
+                  <button id="date-prev" class="button button--quiet" type="button" aria-label="Mês anterior">‹</button>
+                  <button id="date-next" class="button button--quiet" type="button" aria-label="Próximo mês">›</button>
+                </div>
+                <div id="date-months" class="date-months"></div>
+                <div class="date-popover__actions">
+                  <button id="date-reset" class="button button--quiet" type="button">Redefinir</button>
+                  <button id="date-done" class="button" type="button">Concluído</button>
+                </div>
+              </div>
+            </div>
             <div class="segment" role="radiogroup" aria-label="Abrangência">
               <label><input id="scope-nacional" type="radio" name="scope" value="nacional" checked /> Nacional</label>
               <label><input id="scope-internacional" type="radio" name="scope" value="internacional" /> Internacional</label>
@@ -45,6 +64,7 @@
             <button id="search-button" class="button" type="submit">Buscar</button>
           </div>
           <p id="call-estimate" class="estimate" aria-live="polite"></p>
+          <ol id="search-feed" class="search-feed" aria-live="polite"></ol>
           <details id="more-filters" class="drawer">
             <summary>Filtros e alerta</summary>
             <div class="drawer__body">
@@ -97,7 +117,7 @@
                     <input id="alert-max-price" type="number" min="0" step="1" inputmode="decimal" />
                   </label>
                 </div>
-                <p class="help">O mesmo voo não toca outra vez. Ouvir exemplo funciona mesmo com o alerta desligado.</p>
+                <p class="help">O mesmo voo não toca outra vez.</p>
               </fieldset>
               <label>
                 Companhias (códigos IATA, vazio = todas)
@@ -121,9 +141,20 @@
           <button id="stop-button" class="button button--stop" type="button" disabled>Parar</button>
           <button id="save-button" class="button button--quiet" type="button">Salvar</button>
           <button id="clear-button" class="button button--quiet" type="button">Limpar ofertas</button>
-          <button id="alert-test" class="button button--quiet" type="button">Ouvir exemplo</button>
         </div>
       </form>
+      <section class="charts" aria-label="Gráficos de preço">
+        <p id="charts-empty" class="help">Nenhuma oferta visível para os gráficos.</p>
+        <article id="chart-destination-card" class="chart-card" hidden>
+          <h2>Menor preço por destino</h2>
+          <canvas id="chart-destination"></canvas>
+        </article>
+        <article id="chart-departure-card" class="chart-card" hidden>
+          <h2>Preço por data de ida</h2>
+          <canvas id="chart-departure"></canvas>
+          <p id="chart-departure-note" class="help"></p>
+        </article>
+      </section>
       <div class="stage">
         <section class="stage__map" aria-label="Mapa">
           <div class="map-frame">
@@ -137,11 +168,24 @@
         </section>
         <section class="stage__offers">
           <header class="offers-head">
-            <h2>Ofertas</h2>
-            <p id="results-summary" aria-live="polite"></p>
+            <div>
+              <h2>Ofertas</h2>
+              <p id="results-summary" aria-live="polite"></p>
+            </div>
+            <div id="offers-tools" class="offers-tools">
+              <label class="chip" title="Marcado, a lista mostra todo preço guardado. Desmarcado, só os que ficam abaixo da mediana.">
+                <input id="show-all" type="checkbox" checked />
+                Todos os preços
+              </label>
+              <div class="segment" role="radiogroup" aria-label="Ordenação das ofertas">
+                <label><input id="sort-price" type="radio" name="offer-sort" value="price" checked /> Preço</label>
+                <label><input id="sort-date" type="radio" name="offer-sort" value="date" /> Data</label>
+              </div>
+            </div>
           </header>
           <div id="results-body" class="offers"></div>
         </section>
+      </div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

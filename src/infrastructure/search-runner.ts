@@ -1,7 +1,7 @@
-// Versão: 1.0
+// Versão: 1.3
 import { toFlightOffer } from '../domain/offer';
 import { buildSearchPlan } from '../domain/search-plan';
-import type { Airport, FlightOffer, SearchCriteria } from '../domain/types';
+import type { Airport, FlightOffer, RawTicket, SearchCriteria } from '../domain/types';
 import { isAbortError } from './delay';
 import { isTravelpayoutsError, type TravelpayoutsErrorCode } from './travelpayouts-error';
 import type { FlightPriceProvider } from './travelpayouts-client';
@@ -39,6 +39,18 @@ export interface RunSearchOptions {
   now: () => string;
   onProgress?: (progress: SearchProgress) => void;
   onBatch?: (offers: FlightOffer[]) => void;
+  onRoute?: (report: RouteReport) => void;
+}
+
+export interface RouteReport {
+  completedCalls: number;
+  totalCalls: number;
+  destination: string;
+  month: string;
+  foundNow: number;
+  totalOffers: number;
+  cheapest: FlightOffer | null;
+  error: string | null;
 }
 
 interface FetchOutcome {
@@ -66,11 +78,13 @@ export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
       destination: pair.destination,
       month: pair.month,
     });
+    const before = kept.length;
     const outcome = await fetchPair(options, pair.destination, pair.month, kept, seen);
     requestCount += 1;
     if (outcome.kind === 'error' && outcome.message) {
       errors.push({ destination: pair.destination, month: pair.month, message: outcome.message });
     }
+    options.onRoute?.(routeReport(pair, index + 1, pairs.length, kept, before, outcome));
     options.onBatch?.([...kept]);
     if (outcome.kind === 'stop') return finish(outcome.status ?? 'stopped', kept, requestCount, errors, outcome.message);
     const paused = await pauseBeforeNext(options, index, pairs.length, kept, requestCount, errors);
@@ -81,6 +95,24 @@ export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
   return finish('done', kept, requestCount, errors, message);
 }
 
+async function collectTickets(
+  options: RunSearchOptions,
+  destination: string,
+  month: string,
+): Promise<RawTicket[]> {
+  const query = {
+    token: options.token,
+    origin: options.criteria.originIata,
+    destination,
+    month,
+    signal: options.signal,
+    includeRegularPrices: true,
+  };
+  const listed = await options.provider.searchRouteMonth(query);
+  if (listed.length > 0 || !options.provider.searchCalendarMonth) return listed;
+  return options.provider.searchCalendarMonth(query);
+}
+
 async function fetchPair(
   options: RunSearchOptions,
   destination: string,
@@ -89,13 +121,7 @@ async function fetchPair(
   seen: Set<string>,
 ): Promise<FetchOutcome> {
   try {
-    const tickets = await options.provider.searchRouteMonth({
-      token: options.token,
-      origin: options.criteria.originIata,
-      destination,
-      month,
-      signal: options.signal,
-    });
+    const tickets = await collectTickets(options, destination, month);
     for (const ticket of tickets) {
       const offer = toFlightOffer(ticket, options.now());
       if (seen.has(offer.id)) continue;
@@ -133,6 +159,34 @@ async function pauseBeforeNext(
     if (isAbortError(error)) return finish('stopped', kept, requestCount, errors, null);
     throw error;
   }
+}
+
+function routeReport(
+  pair: { destination: string; month: string },
+  completedCalls: number,
+  totalCalls: number,
+  kept: readonly FlightOffer[],
+  before: number,
+  outcome: FetchOutcome,
+): RouteReport {
+  const added = kept.slice(before);
+  return {
+    completedCalls,
+    totalCalls,
+    destination: pair.destination,
+    month: pair.month,
+    foundNow: added.length,
+    totalOffers: kept.length,
+    cheapest: cheapestOf(added),
+    error: outcome.kind === 'error' ? outcome.message : null,
+  };
+}
+
+function cheapestOf(offers: readonly FlightOffer[]): FlightOffer | null {
+  return offers.reduce<FlightOffer | null>((best, offer) => {
+    if (!best || offer.price < best.price) return offer;
+    return best;
+  }, null);
 }
 
 function finish(

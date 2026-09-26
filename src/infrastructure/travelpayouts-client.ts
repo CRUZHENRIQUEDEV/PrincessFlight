@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.3
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
 import { TravelpayoutsError } from './travelpayouts-error';
@@ -12,27 +12,50 @@ export interface RouteMonthQuery {
   destination: string;
   month: string;
   signal: AbortSignal;
+  includeRegularPrices?: boolean;
 }
 
 export interface FlightPriceProvider {
   searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]>;
+  searchCalendarMonth?(query: RouteMonthQuery): Promise<RawTicket[]>;
 }
 
 export function resolveEndpoint(isDev: boolean): string {
   return isDev ? DEV_ENDPOINT : PROD_ENDPOINT;
 }
 
-export function buildPricesForDatesUrl(query: RouteMonthQuery, endpoint: string): string {
+const REGULAR_PAGE_SIZE = 100;
+const CHEAPEST_PAGE_SIZE = 1;
+const MAX_REGULAR_PAGES = 3;
+
+export function buildPricesForDatesUrl(query: RouteMonthQuery, endpoint: string, page = 1): string {
+  const regular = query.includeRegularPrices !== false;
   const params = new URLSearchParams({
     origin: query.origin,
     destination: query.destination,
     departure_at: query.month,
     one_way: 'false',
     sorting: 'price',
-    limit: '30',
-    page: '1',
+    limit: String(regular ? REGULAR_PAGE_SIZE : CHEAPEST_PAGE_SIZE),
+    page: String(page),
     currency: 'brl',
     direct: 'false',
+    unique: 'false',
+  });
+  return `${endpoint}?${params.toString()}`;
+}
+
+export function calendarEndpoint(pricesEndpoint: string): string {
+  return pricesEndpoint.replace('/aviasales/v3/prices_for_dates', '/v1/prices/calendar');
+}
+
+export function buildCalendarUrl(query: RouteMonthQuery, endpoint: string): string {
+  const params = new URLSearchParams({
+    origin: query.origin,
+    destination: query.destination,
+    depart_date: query.month,
+    calendar_type: 'departure_date',
+    currency: 'brl',
   });
   return `${endpoint}?${params.toString()}`;
 }
@@ -54,8 +77,30 @@ export class TravelpayoutsClient implements FlightPriceProvider {
     }
   }
 
+  async searchCalendarMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+    const response = await this.fetchCalendar(query);
+    if (response.status === 401 || response.status === 403) {
+      throw new TravelpayoutsError('Token recusado. Confira em Perfil → API token.', response.status, 'auth');
+    }
+    if (!response.ok) return [];
+    return parseCalendarBody(await readBody(response), query);
+  }
+
   private async request(query: RouteMonthQuery): Promise<RawTicket[]> {
-    const response = await this.fetchResponse(query);
+    const regular = query.includeRegularPrices !== false;
+    const pageSize = regular ? REGULAR_PAGE_SIZE : CHEAPEST_PAGE_SIZE;
+    const maxPages = regular ? MAX_REGULAR_PAGES : 1;
+    const tickets: RawTicket[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const batch = await this.requestPage(query, page);
+      tickets.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return tickets;
+  }
+
+  private async requestPage(query: RouteMonthQuery, page: number): Promise<RawTicket[]> {
+    const response = await this.fetchResponse(query, page);
     if (response.status === 429) throw new TravelpayoutsError('Limite de chamadas da Travelpayouts.', 429, 'rate');
     if (response.status === 401 || response.status === 403) {
       throw new TravelpayoutsError('Token recusado. Confira em Perfil → API token.', response.status, 'auth');
@@ -65,9 +110,17 @@ export class TravelpayoutsClient implements FlightPriceProvider {
     return parsePricesBody(body, query);
   }
 
-  private async fetchResponse(query: RouteMonthQuery): Promise<Response> {
+  private async fetchResponse(query: RouteMonthQuery, page: number): Promise<Response> {
+    return this.fetchUrl(buildPricesForDatesUrl(query, this.endpoint, page), query);
+  }
+
+  private async fetchCalendar(query: RouteMonthQuery): Promise<Response> {
+    return this.fetchUrl(buildCalendarUrl(query, calendarEndpoint(this.endpoint)), query);
+  }
+
+  private async fetchUrl(url: string, query: RouteMonthQuery): Promise<Response> {
     try {
-      return await this.fetchFn(buildPricesForDatesUrl(query, this.endpoint), {
+      return await this.fetchFn(url, {
         signal: query.signal,
         cache: 'no-store',
         headers: { 'X-Access-Token': query.token },
@@ -98,6 +151,21 @@ export function parsePricesBody(body: unknown, query: RouteMonthQuery): RawTicke
   return rowsFromData(record.data)
     .map((row) => toTicket(row, query, currency))
     .filter((ticket): ticket is RawTicket => ticket !== null);
+}
+
+export function parseCalendarBody(body: unknown, query: RouteMonthQuery): RawTicket[] {
+  const record = asRecord(body);
+  if (!record || record.success === false) return [];
+  const currency = text(record.currency).toUpperCase() || 'BRL';
+  return calendarRows(record.data)
+    .map((row) => toTicket(row, query, currency))
+    .filter((ticket): ticket is RawTicket => ticket !== null);
+}
+
+function calendarRows(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  const record = asRecord(data);
+  return record ? Object.values(record) : [];
 }
 
 function toTicket(value: unknown, query: RouteMonthQuery, currency: string): RawTicket | null {

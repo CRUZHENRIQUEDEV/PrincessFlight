@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
@@ -66,6 +66,30 @@ describe('apresentação', () => {
     expect(visible.map((offer) => offer.id)).toEqual(['barato', 'caro']);
     expect(visible[0].isBargain).toBe(true);
   });
+
+  it('só preços baixos esconde quem está na mediana ou acima', () => {
+    const stored: FlightOffer[] = [
+      sampleOffer({ id: 'caro', price: 900 }),
+      sampleOffer({ id: 'medio', price: 180 }),
+      sampleOffer({ id: 'barato', price: 100 }),
+      sampleOffer({ id: 'for', destination: 'FOR', price: 800 }),
+    ];
+    const visible = presentOffers(
+      stored,
+      sampleCriteria({ coastalOnly: false, includeRegularPrices: false }),
+      sampleAirports(),
+    );
+    expect(visible.map((offer) => offer.id)).toEqual(['barato', 'for']);
+  });
+
+  it('ordena as ofertas pela data de ida', () => {
+    const stored: FlightOffer[] = [
+      sampleOffer({ id: 'tarde', price: 100, departureAt: '2026-11-20T10:00:00-03:00' }),
+      sampleOffer({ id: 'cedo', price: 900, departureAt: '2026-11-02T10:00:00-03:00' }),
+    ];
+    const visible = presentOffers(stored, sampleCriteria({ states: ['BA'], offerSort: 'date' }), sampleAirports());
+    expect(visible.map((offer) => offer.id)).toEqual(['cedo', 'tarde']);
+  });
 });
 
 describe('critério', () => {
@@ -87,6 +111,8 @@ describe('critério', () => {
       delayBetweenCallsSeconds: '1',
       repeatEveryMinutes: '',
       bargainsOnly: false,
+      includeRegularPrices: true,
+      offerSort: 'price',
     });
     expect(parsed.criteria.originIata).toBe('GRU');
     expect(parsed.criteria.priceMax).toBe(1500);

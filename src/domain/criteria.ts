@@ -1,6 +1,6 @@
-// Versão: 1.0
-import { addDays, todayIso } from './iso-date';
-import type { Region, SearchCriteria, TripScope } from './types';
+// Versão: 1.3
+import { addDays, todayIso, tomorrowIso } from './iso-date';
+import type { OfferSort, Region, SearchCriteria, TripScope } from './types';
 import type { SearchPlan } from './search-plan';
 
 const REGIONS: readonly Region[] = ['norte', 'nordeste', 'centro-oeste', 'sudeste', 'sul'];
@@ -21,6 +21,8 @@ export interface CriteriaInput {
   delayBetweenCallsSeconds: string;
   repeatEveryMinutes: string;
   bargainsOnly: boolean;
+  includeRegularPrices: boolean;
+  offerSort: string;
 }
 
 export interface ParsedCriteria {
@@ -29,14 +31,15 @@ export interface ParsedCriteria {
 }
 
 export function createDefaultCriteria(today = todayIso()): SearchCriteria {
+  const departureStart = tomorrowIso(today);
   return {
     originIata: 'GRU',
     scope: 'nacional',
     regions: [],
     states: [],
     coastalOnly: true,
-    departureStart: today,
-    departureEnd: addDays(today, 30),
+    departureStart,
+    departureEnd: addDays(departureStart, 30),
     holidayBridgeOnly: false,
     priceMin: null,
     priceMax: null,
@@ -45,6 +48,8 @@ export function createDefaultCriteria(today = todayIso()): SearchCriteria {
     delayBetweenCallsSeconds: 5,
     repeatEveryMinutes: 0,
     bargainsOnly: false,
+    includeRegularPrices: true,
+    offerSort: 'price',
   };
 }
 
@@ -80,16 +85,27 @@ export function parseCriteria(input: CriteriaInput): ParsedCriteria {
       delayBetweenCallsSeconds: delay.value !== null && delay.value >= 2 ? delay.value : 5,
       repeatEveryMinutes: repeat.value !== null && repeat.value >= 0 ? repeat.value : 0,
       bargainsOnly: input.bargainsOnly,
+      includeRegularPrices: input.includeRegularPrices,
+      offerSort: parseOfferSort(input.offerSort),
     },
     fieldError,
   };
 }
 
-export function validateSearch(criteria: SearchCriteria, plan: SearchPlan, token: string): string | null {
+export function validateSearch(
+  criteria: SearchCriteria,
+  plan: SearchPlan,
+  token: string,
+  today = todayIso(),
+): string | null {
   if (!token.trim()) return 'Cole o token da Travelpayouts. Ele fica salvo só neste navegador.';
   if (!criteria.originIata) return 'Escolha a origem.';
   if (!criteria.departureStart || !criteria.departureEnd) return 'Informe o intervalo de datas.';
   if (criteria.departureStart > criteria.departureEnd) return 'A data inicial é posterior à data final.';
+  const minimum = tomorrowIso(today);
+  if (criteria.departureStart < minimum || criteria.departureEnd < minimum) {
+    return 'A data precisa ser a partir de amanhã.';
+  }
   if (criteria.priceMin !== null && criteria.priceMax !== null && criteria.priceMin > criteria.priceMax) {
     return 'O preço mínimo está acima do preço máximo.';
   }
@@ -106,6 +122,10 @@ export function validateSearch(criteria: SearchCriteria, plan: SearchPlan, token
 
 function parseScope(value: string): TripScope {
   return value === 'internacional' ? 'internacional' : 'nacional';
+}
+
+function parseOfferSort(value: string): OfferSort {
+  return value === 'date' ? 'date' : 'price';
 }
 
 function parseRegions(values: readonly string[]): Region[] {

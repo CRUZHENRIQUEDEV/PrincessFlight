@@ -1,8 +1,9 @@
-// Versão: 1.3
+// Versão: 1.6
 import { parseAlertRules, type AlertRules, type AlertRulesInput } from '../domain/alert-rules';
 import { parseCriteria, type CriteriaInput } from '../domain/criteria';
 import type { Airport, SearchCriteria } from '../domain/types';
 import type { StoredSettings } from '../infrastructure/flight-store';
+import { syncDatePicker } from './date-picker';
 
 export function populateLocations(doc: Document, airports: readonly Airport[]): void {
   const origin = doc.getElementById('origin');
@@ -51,6 +52,8 @@ export function readCriteriaInput(doc: Document): CriteriaInput {
     delayBetweenCallsSeconds: valueOf(doc, 'delay-seconds'),
     repeatEveryMinutes: valueOf(doc, 'repeat-minutes'),
     bargainsOnly: checked(doc, 'bargains-only'),
+    includeRegularPrices: checkedOrMissing(doc, 'show-all'),
+    offerSort: checked(doc, 'sort-date') ? 'date' : 'price',
   };
 }
 
@@ -62,6 +65,9 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   setChecked(doc, 'coastal-only', criteria.coastalOnly);
   setChecked(doc, 'holiday-only', criteria.holidayBridgeOnly);
   setChecked(doc, 'bargains-only', criteria.bargainsOnly);
+  setChecked(doc, 'show-all', criteria.includeRegularPrices !== false);
+  setChecked(doc, 'sort-price', criteria.offerSort !== 'date');
+  setChecked(doc, 'sort-date', criteria.offerSort === 'date');
   setValue(doc, 'date-start', criteria.departureStart);
   setValue(doc, 'date-end', criteria.departureEnd);
   setValue(doc, 'price-min', criteria.priceMin === null ? '' : String(criteria.priceMin));
@@ -74,6 +80,7 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   checkNamed(doc, 'state', new Set(criteria.states));
   if (rules) fillAlertRules(doc, rules);
   syncScope(doc);
+  syncDatePicker(doc);
 }
 
 function fillAlertRules(doc: Document, rules: AlertRules): void {
@@ -136,6 +143,12 @@ function checkNamed(doc: Document, name: string, selected: ReadonlySet<string>):
 function checked(doc: Document, id: string): boolean {
   const input = doc.getElementById(id);
   return input instanceof HTMLInputElement && input.checked;
+}
+
+function checkedOrMissing(doc: Document, id: string): boolean {
+  const input = doc.getElementById(id);
+  if (!(input instanceof HTMLInputElement)) return true;
+  return input.checked;
 }
 
 function valueOf(doc: Document, id: string): string {
