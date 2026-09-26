@@ -1,4 +1,4 @@
-// Versão: 1.3
+// Versão: 1.4
 import type { Airport, FlightOffer, SearchCriteria } from '../src/domain/types';
 
 export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchCriteria {
@@ -10,6 +10,7 @@ export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchC
     coastalOnly: true,
     departureStart: '2026-11-01',
     departureEnd: '2026-11-30',
+    tripLengthDays: null,
     holidayBridgeOnly: false,
     priceMin: null,
     priceMax: null,

@@ -45,6 +45,7 @@ export function readCriteriaInput(doc: Document): CriteriaInput {
     coastalOnly: checked(doc, 'coastal-only'),
     departureStart: valueOf(doc, 'date-start'),
     departureEnd: valueOf(doc, 'date-end'),
+    tripLengthDays: valueOf(doc, 'trip-days'),
     holidayBridgeOnly: checked(doc, 'holiday-only'),
     priceMin: valueOf(doc, 'price-min'),
     priceMax: valueOf(doc, 'price-max'),

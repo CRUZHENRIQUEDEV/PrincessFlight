@@ -1,4 +1,4 @@
-/* Versão: 3.6 */
+/* Versão: 3.7 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -462,6 +462,7 @@ input, select {
   color: var(--ink);
   line-height: 1.45;
 }
+.favorites-add { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; margin: 0.2rem 0 0.75rem; }
 .favorites-add label { flex: 1; min-width: 12rem; }
 .favorite-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.7rem 0 0; padding: 0; list-style: none; }
 .favorite-chips button {

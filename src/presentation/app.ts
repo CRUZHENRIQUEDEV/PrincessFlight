@@ -161,6 +161,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     byId(doc, 'search-drawer'),
     () => searchDrawer.hide(),
     (iata) => changeFavorite(iata, false),
+    (iata) => changeFavorite(iata, true),
   );
   render();
   requestAnimationFrame(() => map.invalidate());
@@ -305,7 +306,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     const target = searches.find((search) => search.id === id);
     if (!target) return;
     if (id === activeId) {
-      searchDrawer.show(target, AIRPORTS);
+      searchDrawer.show(target, AIRPORTS, catalog);
       closeOffer();
       return;
     }
@@ -555,7 +556,7 @@ export async function startApp(doc: Document = document): Promise<void> {
       searchDrawer.hide();
       return;
     }
-    searchDrawer.show(search, AIRPORTS);
+    searchDrawer.show(search, AIRPORTS, catalog);
   }
 
   function paintFavorites(current: SavedSearch | undefined): void {

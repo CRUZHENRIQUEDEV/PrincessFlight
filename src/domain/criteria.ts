@@ -1,5 +1,6 @@
-// Versão: 1.4
+// Versão: 1.5
 import { addDays, todayIso, tomorrowIso } from './iso-date';
+import { normalizeTripLength } from './filters';
 import type { OfferSort, Region, SearchCriteria, TripScope } from './types';
 import type { SearchPlan } from './search-plan';
 
@@ -13,6 +14,7 @@ export interface CriteriaInput {
   coastalOnly: boolean;
   departureStart: string;
   departureEnd: string;
+  tripLengthDays: string;
   holidayBridgeOnly: boolean;
   priceMin: string;
   priceMax: string;
@@ -40,6 +42,7 @@ export function createDefaultCriteria(today = todayIso()): SearchCriteria {
     coastalOnly: true,
     departureStart,
     departureEnd: addDays(departureStart, 30),
+    tripLengthDays: null,
     holidayBridgeOnly: false,
     priceMin: null,
     priceMax: null,
@@ -67,6 +70,7 @@ export function parseCriteria(input: CriteriaInput): ParsedCriteria {
   const bargain = optionalNumber(input.bargainRatioPercent);
   const delay = optionalInteger(input.delayBetweenCallsSeconds);
   const repeat = optionalInteger(input.repeatEveryMinutes);
+  const tripLength = optionalInteger(input.tripLengthDays);
   const fieldError = firstFieldError(priceMin, priceMax, bargain, delay, repeat);
   return {
     criteria: {
@@ -77,6 +81,7 @@ export function parseCriteria(input: CriteriaInput): ParsedCriteria {
       coastalOnly: input.coastalOnly,
       departureStart: input.departureStart,
       departureEnd: input.departureEnd,
+      tripLengthDays: normalizeTripLength(tripLength.value),
       holidayBridgeOnly: input.holidayBridgeOnly,
       priceMin: priceMin.value,
       priceMax: priceMax.value,

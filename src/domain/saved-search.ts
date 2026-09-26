@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 import { createDefaultAlertRules, type AlertRules } from './alert-rules';
 import type { FlightOffer, SearchCriteria } from './types';
 
@@ -61,6 +61,7 @@ export function favoritesCriteria(originIata: string): SearchCriteria {
     coastalOnly: false,
     departureStart: '',
     departureEnd: '',
+    tripLengthDays: null,
     holidayBridgeOnly: false,
     priceMin: null,
     priceMax: null,

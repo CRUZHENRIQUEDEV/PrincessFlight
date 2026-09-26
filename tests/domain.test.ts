@@ -136,6 +136,7 @@ describe('critério', () => {
       coastalOnly: true,
       departureStart: '2026-11-01',
       departureEnd: '2026-11-30',
+      tripLengthDays: '',
       holidayBridgeOnly: false,
       priceMin: '',
       priceMax: '1500',

@@ -1,4 +1,4 @@
-// Versão: 1.4
+// Versão: 1.5
 import { AIRPORTS } from '../data/airports';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
@@ -216,7 +216,9 @@ function favoriteRound(
       if (stale()) return;
       const airport = AIRPORTS.find((item) => item.iata === progress.destination);
       const city = airport?.city ?? progress.destination;
-      const found = progress.ticketCount === 0 ? 'sem preço no cache' : 'menor preço encontrado';
+      const found = progress.ticketCount === 0
+        ? 'nenhum preço guardado; a API só devolve tarifas que alguém já buscou'
+        : 'menor preço encontrado';
       const line = `${progress.completedCalls} de ${progress.totalCalls} · ${city} · qualquer data · ${found}`;
       deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
       if (!deps.isActive(search.id)) return;

@@ -28,6 +28,6 @@ describe('relato da busca', () => {
       totalOffers: 4,
       cheapest: null,
       error: null,
-    })).toBe('4 de 16 · Lisboa · dez/2026 · cache sem preço neste mês · 4 ofertas no total');
+    })).toBe('4 de 16 · Lisboa · dez/2026 · nenhum preço guardado neste mês; a API só devolve tarifas que alguém já buscou · 4 ofertas no total');
   });
 });

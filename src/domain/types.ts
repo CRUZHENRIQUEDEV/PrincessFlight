@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
@@ -26,6 +26,7 @@ export interface SearchCriteria {
   coastalOnly: boolean;
   departureStart: string;
   departureEnd: string;
+  tripLengthDays: number | null;
   holidayBridgeOnly: boolean;
   priceMin: number | null;
   priceMax: number | null;

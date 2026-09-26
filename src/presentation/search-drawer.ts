@@ -1,6 +1,6 @@
-// Versão: 1.0
+// Versão: 1.2
 import { buildSearchBrief, type SearchBrief } from '../domain/search-brief';
-import type { Airport } from '../domain/types';
+import type { Airport, FlightOffer } from '../domain/types';
 import type { SavedSearch } from '../domain/saved-search';
 import { airlineLabel, formatPrice, formatWhen } from './format';
 
@@ -11,6 +11,7 @@ export class SearchDrawer {
     private readonly root: HTMLElement,
     private readonly onClose: () => void,
     private readonly onRemoveDestination: (iata: string) => void,
+    private readonly onAddDestination: (iata: string) => void,
   ) {
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !this.root.hidden) this.onClose();
@@ -21,6 +22,7 @@ export class SearchDrawer {
       if (target.closest('[data-close]')) this.onClose();
       const remove = target.closest<HTMLElement>('[data-remove-destination]');
       if (remove?.dataset.removeDestination) this.onRemoveDestination(remove.dataset.removeDestination);
+      if (target.closest('[data-add-destination]')) this.addSelected();
     });
   }
 
@@ -28,43 +30,88 @@ export class SearchDrawer {
     return this.shownId;
   }
 
-  show(search: SavedSearch, airports: readonly Airport[]): void {
+  show(search: SavedSearch, airports: readonly Airport[], storedOffers: readonly FlightOffer[] = []): void {
     this.shownId = search.id;
     this.root.hidden = false;
     const title = this.root.querySelector('#search-drawer-title');
-    const brief = buildSearchBrief(search, airports);
+    const brief = buildSearchBrief(search, airports, storedOffers);
     if (title) title.textContent = brief.title;
     const body = this.root.querySelector('.offer-drawer__body');
     if (!body) return;
-    body.replaceChildren(sheet(brief));
+    const choosing = document.activeElement;
+    const previous = choosing instanceof HTMLSelectElement && choosing.id === 'drawer-favorite-destination' ? choosing.value : '';
+    body.replaceChildren(sheet(brief, addableAirports(search, airports)));
+    if (!previous) return;
+    const select = body.querySelector('#drawer-favorite-destination');
+    if (!(select instanceof HTMLSelectElement)) return;
+    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+    select.focus();
   }
 
   hide(): void {
     this.shownId = null;
     this.root.hidden = true;
   }
+
+  private addSelected(): void {
+    const select = this.root.querySelector('#drawer-favorite-destination');
+    if (!(select instanceof HTMLSelectElement) || !select.value) return;
+    this.onAddDestination(select.value);
+  }
 }
 
-function sheet(brief: SearchBrief): HTMLElement {
+function sheet(brief: SearchBrief, choices: readonly Airport[]): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'offer-sheet';
   const facts = document.createElement('dl');
   facts.className = 'offer-sheet__facts';
   for (const line of brief.lines) facts.append(fact(line.label, displayValue(line.label, line.value)));
   wrap.append(facts);
-  if (brief.destinations.length > 0) wrap.append(destinationList(brief));
+  if (brief.removable || brief.destinations.length > 0) wrap.append(destinationList(brief, choices));
   return wrap;
 }
 
-function destinationList(brief: SearchBrief): HTMLElement {
+function addableAirports(search: SavedSearch, airports: readonly Airport[]): Airport[] {
+  if (search.mode !== 'favorites') return [];
+  const chosen = new Set(search.favoriteDestinations);
+  return airports.filter((airport) => airport.iata !== search.criteria.originIata && !chosen.has(airport.iata));
+}
+
+function destinationList(brief: SearchBrief, choices: readonly Airport[]): HTMLElement {
   const section = document.createElement('section');
   const title = document.createElement('h3');
   title.textContent = 'Por destino';
+  section.append(title);
+  if (brief.removable) section.append(addDestination(choices));
   const list = document.createElement('ul');
   list.className = 'offer-sheet__places';
   for (const item of brief.destinations) list.append(destinationItem(item, brief.removable));
-  section.append(title, list);
+  section.append(list);
   return section;
+}
+
+function addDestination(choices: readonly Airport[]): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'favorites-add';
+  const label = document.createElement('label');
+  label.textContent = 'Adicionar destino';
+  const select = document.createElement('select');
+  select.id = 'drawer-favorite-destination';
+  for (const airport of choices) {
+    const option = document.createElement('option');
+    option.value = airport.iata;
+    option.textContent = `${airport.city} (${airport.iata})`;
+    select.append(option);
+  }
+  label.append(select);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'button';
+  button.dataset.addDestination = 'true';
+  button.textContent = 'Adicionar';
+  button.disabled = choices.length === 0;
+  row.append(label, button);
+  return row;
 }
 
 function destinationItem(item: SearchBrief['destinations'][number], removable: boolean): HTMLElement {
@@ -73,7 +120,7 @@ function destinationItem(item: SearchBrief['destinations'][number], removable: b
   const back = item.offer?.returnAt ? formatWhen(item.offer.returnAt) : 'sem volta';
   text.textContent = item.offer
     ? `${item.city} (${item.iata}) · ${formatPrice(item.offer.price, item.offer.currency)} · ${airlineLabel(item.offer.airline)} · ${formatWhen(item.offer.departureAt)} → ${back}`
-    : `${item.city} (${item.iata}) · ainda sem preço`;
+    : `${item.city} (${item.iata}) · o cache não tem preço guardado nesta rota`;
   row.append(text);
   if (!removable) return row;
   const button = document.createElement('button');

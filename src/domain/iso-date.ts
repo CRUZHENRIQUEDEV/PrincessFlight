@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 
 /** Soma dias civis sem deslocar a data por fuso horário. */
 export function addDays(isoDate: string, days: number): string {
@@ -28,6 +28,16 @@ export function todayIso(now = new Date()): string {
 
 export function tomorrowIso(today = todayIso()): string {
   return addDays(today, 1);
+}
+
+/** Dias civis de ida até a volta. A mesma data vale 0. */
+export function daysBetween(start: string, end: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return null;
+  const [startYear, startMonth, startDay] = start.split('-').map(Number);
+  const [endYear, endMonth, endDay] = end.split('-').map(Number);
+  const startUtc = Date.UTC(startYear, startMonth - 1, startDay);
+  const endUtc = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.round((endUtc - startUtc) / 86_400_000);
 }
 
 /** Meses YYYY-MM inclusivos. Trava em 24 para um intervalo acidental enorme. */

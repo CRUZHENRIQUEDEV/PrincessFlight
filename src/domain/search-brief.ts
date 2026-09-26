@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
 
@@ -20,7 +20,11 @@ export interface SearchBrief {
   removable: boolean;
 }
 
-export function buildSearchBrief(search: SavedSearch, airports: readonly Airport[]): SearchBrief {
+export function buildSearchBrief(
+  search: SavedSearch,
+  airports: readonly Airport[],
+  storedOffers: readonly FlightOffer[] = [],
+): SearchBrief {
   const origin = airports.find((airport) => airport.iata === search.criteria.originIata);
   const cheapest = [...search.offers].sort((left, right) => left.price - right.price)[0] ?? null;
   const favorites = search.mode === 'favorites';
@@ -40,7 +44,7 @@ export function buildSearchBrief(search: SavedSearch, airports: readonly Airport
   if (favorites) {
     lines.splice(5, 0, {
       label: 'Como busca',
-      value: 'Ida e volta mais baratas, em qualquer data, um destino por chamada.',
+      value: 'Menor ida e volta já guardada no cache, sem escolher data. Rota que ninguém buscou volta vazia.',
     });
   } else {
     lines.splice(5, 0, { label: 'Datas', value: dateLabel(search) }, { label: 'Abrangência', value: scopeLabel(search) });
@@ -48,7 +52,7 @@ export function buildSearchBrief(search: SavedSearch, airports: readonly Airport
   return {
     title: search.name,
     lines,
-    destinations: cheapestByDestination(search, airports),
+    destinations: cheapestByDestination(search, airports, storedOffers),
     removable: favorites,
   };
 }
@@ -68,13 +72,15 @@ function scopeLabel(search: SavedSearch): string {
   return parts.join(' · ');
 }
 
-function cheapestByDestination(search: SavedSearch, airports: readonly Airport[]): DestinationPrice[] {
+function cheapestByDestination(search: SavedSearch, airports: readonly Airport[], storedOffers: readonly FlightOffer[]): DestinationPrice[] {
   const codes = search.mode === 'favorites'
     ? search.favoriteDestinations
     : [...new Set(search.offers.map((offer) => offer.destination))];
+  const origin = search.criteria.originIata.toUpperCase();
+  const pool = [...search.offers, ...storedOffers.filter((offer) => offer.origin === origin)];
   return codes.map((code) => {
     const airport = airports.find((item) => item.iata === code);
-    const offer = search.offers
+    const offer = pool
       .filter((item) => item.destination === code)
       .sort((left, right) => left.price - right.price)[0] ?? null;
     return { iata: code, city: airport?.city ?? code, offer };

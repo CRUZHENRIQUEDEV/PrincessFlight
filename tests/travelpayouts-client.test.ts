@@ -1,6 +1,6 @@
 // Versão: 1.2
 import { describe, expect, it, vi } from 'vitest';
-import { buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, calendarEndpoint, cheapEndpoint, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
+import { buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, cacheCityCode, calendarEndpoint, cheapEndpoint, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
 import type { RouteMonthQuery } from '../src/infrastructure/travelpayouts-client';
 
@@ -18,6 +18,7 @@ describe('cliente Travelpayouts', () => {
     expect(endpoint).toBe('https://api.travelpayouts.com/v1/prices/cheap');
     const url = new URL(buildCheapUrl(query, endpoint));
     expect(url.searchParams.get('currency')).toBe('brl');
+    expect(url.searchParams.get('market')).toBe('br');
     expect(url.searchParams.has('departure_at')).toBe(false);
     const ticket = parseCheapBody({
       success: true,
@@ -32,6 +33,19 @@ describe('cliente Travelpayouts', () => {
     expect(ticket?.price).toBe(700);
     expect(ticket?.airline).toBe('AD');
     expect(ticket?.link).toBe('https://www.aviasales.com/search/GRU1511SSA22111');
+    expect(cacheCityCode('GIG')).toBe('RIO');
+    const rio = parseCheapBody({
+      success: true,
+      currency: 'brl',
+      data: {
+        RIO: {
+          0: { price: 450, airline: 'G3', flight_number: 1, departure_at: '2026-12-01T08:00:00-03:00', return_at: '2026-12-08T18:00:00-03:00', destination_airport: 'GIG' },
+        },
+      },
+    }, { ...query, destination: 'GIG' });
+    expect(rio?.price).toBe(450);
+    expect(rio?.destination).toBe('GIG');
+    expect(rio?.destinationAirport).toBe('GIG');
   });
 
   it('monta a URL em real, ida e volta', () => {

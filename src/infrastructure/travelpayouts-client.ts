@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 import { calendarDay } from '../domain/iso-date';
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
@@ -67,6 +67,7 @@ export function buildCheapUrl(query: CheapQuery, endpoint: string): string {
     origin: query.origin,
     destination: query.destination,
     currency: 'brl',
+    market: 'br',
   });
   return `${endpoint}?${params.toString()}`;
 }
@@ -205,7 +206,7 @@ export function parseCheapBody(body: unknown, query: CheapQuery): RawTicket | nu
   }
   const data = asRecord(record.data);
   const destination = query.destination.toUpperCase();
-  const bucket = asRecord(data?.[destination]) ?? asRecord(data?.[query.destination]);
+  const bucket = cheapBucket(data, destination);
   if (!bucket) return null;
   const currency = text(record.currency).toUpperCase() || 'BRL';
   const route: RouteMonthQuery = { ...query, month: '' };
@@ -219,6 +220,32 @@ export function parseCheapBody(body: unknown, query: CheapQuery): RawTicket | nu
     if (!best || priced.price < best.price) best = priced;
   }
   return best;
+}
+
+function cheapBucket(data: Record<string, unknown> | null, destination: string): Record<string, unknown> | null {
+  if (!data) return null;
+  const named = asRecord(data[destination]);
+  if (named) return named;
+  const city = cacheCityCode(destination);
+  const byCity = city === destination ? null : asRecord(data[city]);
+  if (byCity) return byCity;
+  const buckets = Object.values(data).map((value) => asRecord(value)).filter((value) => value !== null);
+  return buckets.length === 1 ? buckets[0] : null;
+}
+
+/** Aeroportos cujo cache da Travelpayouts fica no código da cidade. */
+export function cacheCityCode(iata: string): string {
+  const code = iata.trim().toUpperCase();
+  const city: Record<string, string> = {
+    GIG: 'RIO',
+    SDU: 'RIO',
+    GRU: 'SAO',
+    CGH: 'SAO',
+    VCP: 'SAO',
+    CNF: 'BHZ',
+    PLU: 'BHZ',
+  };
+  return city[code] ?? code;
 }
 
 function stopCount(stops: string): number {
