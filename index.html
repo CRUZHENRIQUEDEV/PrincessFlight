@@ -1,0 +1,149 @@
+<!-- Versão: 2.0 -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Princess Flight</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dots" aria-hidden="true"></span>
+          <div>
+            <p class="brand__kicker">Princess Flight</p>
+            <h1>Passagens abaixo da mediana</h1>
+          </div>
+        </div>
+        <p id="status" class="status" role="status"></p>
+      </header>
+      <p id="alert-status" class="alert-status" role="status"></p>
+      <form id="filters" class="panel" autocomplete="off">
+        <fieldset id="criteria-fields">
+          <legend class="sr-only">Critérios da busca</legend>
+          <div class="toolbar">
+            <label>
+              Origem
+              <select id="origin"></select>
+            </label>
+            <label>
+              Ida a partir de
+              <input id="date-start" type="date" required />
+            </label>
+            <label>
+              Ida até
+              <input id="date-end" type="date" required />
+            </label>
+            <div class="segment" role="radiogroup" aria-label="Abrangência">
+              <label><input id="scope-nacional" type="radio" name="scope" value="nacional" checked /> Nacional</label>
+              <label><input id="scope-internacional" type="radio" name="scope" value="internacional" /> Internacional</label>
+            </div>
+            <button id="search-button" class="button" type="submit">Buscar</button>
+          </div>
+          <p id="call-estimate" class="estimate" aria-live="polite"></p>
+          <details id="more-filters" class="drawer">
+            <summary>Filtros e alerta</summary>
+            <div class="drawer__body">
+              <label>
+                Token da Travelpayouts
+                <input id="token" type="password" autocomplete="off" />
+              </label>
+              <p id="token-help" class="help">
+                Perfil → API token. A chave, a origem e os filtros ficam neste navegador e voltam na próxima visita.
+                A API não libera chamada direta de um site publicado; neste computador, <code>npm run dev</code> faz a ponte.
+              </p>
+              <label class="check"><input id="show-token" type="checkbox" /> Mostrar token</label>
+              <div id="national-filters" class="stack">
+                <label class="chip"><input id="coastal-only" type="checkbox" checked /> Somente litoral</label>
+                <div class="chip-set" role="group" aria-label="Região, vazio significa todas">
+                  <label class="chip"><input type="checkbox" name="region" value="norte" /> Norte</label>
+                  <label class="chip"><input type="checkbox" name="region" value="nordeste" /> Nordeste</label>
+                  <label class="chip"><input type="checkbox" name="region" value="centro-oeste" /> Centro-Oeste</label>
+                  <label class="chip"><input type="checkbox" name="region" value="sudeste" /> Sudeste</label>
+                  <label class="chip"><input type="checkbox" name="region" value="sul" /> Sul</label>
+                </div>
+                <div id="states" class="checks chip-set" role="group" aria-label="Estados, vazio significa todos"></div>
+              </div>
+              <label class="chip"><input id="holiday-only" type="checkbox" /> Só pontes de feriado (quinta–sexta e segunda–terça)</label>
+              <div class="split">
+                <label>
+                  Preço mínimo (R$)
+                  <input id="price-min" type="number" min="0" step="1" inputmode="decimal" />
+                </label>
+                <label>
+                  Preço máximo (R$)
+                  <input id="price-max" type="number" min="0" step="1" inputmode="decimal" />
+                </label>
+                <label>
+                  Barganha até esta % da mediana
+                  <input id="bargain-ratio" type="number" min="10" max="100" step="5" value="70" />
+                </label>
+              </div>
+              <label class="chip"><input id="bargains-only" type="checkbox" /> Mostrar só as barganhas</label>
+              <fieldset class="stack">
+                <legend>Alerta sonoro</legend>
+                <label class="chip"><input id="alert-enabled" type="checkbox" checked /> Tocar som em oferta muito boa</label>
+                <div class="split">
+                  <label>
+                    Mínimo abaixo da mediana (%)
+                    <input id="alert-percent" type="number" min="5" max="90" step="1" value="30" />
+                  </label>
+                  <label>
+                    Preço máximo do alerta (R$, vazio = qualquer)
+                    <input id="alert-max-price" type="number" min="0" step="1" inputmode="decimal" />
+                  </label>
+                </div>
+                <p class="help">O mesmo voo não toca outra vez. Ouvir exemplo funciona mesmo com o alerta desligado.</p>
+              </fieldset>
+              <label>
+                Companhias (códigos IATA, vazio = todas)
+                <input id="airlines" type="text" placeholder="G3, AD, LA" />
+              </label>
+              <div class="split">
+                <label>
+                  Pausa entre chamadas (segundos)
+                  <input id="delay-seconds" type="number" min="2" step="1" value="5" />
+                </label>
+                <label>
+                  Repetir a busca a cada (minutos, 0 = uma vez)
+                  <input id="repeat-minutes" type="number" min="0" step="1" value="0" />
+                </label>
+              </div>
+            </div>
+          </details>
+        </fieldset>
+        <div class="actions">
+          <button id="monitor-button" class="button button--quiet" type="button">Monitorar</button>
+          <button id="stop-button" class="button button--stop" type="button" disabled>Parar</button>
+          <button id="save-button" class="button button--quiet" type="button">Salvar</button>
+          <button id="clear-button" class="button button--quiet" type="button">Limpar ofertas</button>
+          <button id="alert-test" class="button button--quiet" type="button">Ouvir exemplo</button>
+        </div>
+      </form>
+      <div class="stage">
+        <section class="stage__map" aria-label="Mapa">
+          <div class="map-frame">
+            <div id="map" class="map" role="region" aria-label="Mapa dos destinos"></div>
+            <p class="legend">
+              <span class="legend__swatch legend__swatch--origin"></span> origem
+              <span class="legend__swatch legend__swatch--deal"></span> abaixo da mediana
+              <span class="legend__swatch"></span> demais ofertas
+            </p>
+          </div>
+        </section>
+        <section class="stage__offers">
+          <header class="offers-head">
+            <h2>Ofertas</h2>
+            <p id="results-summary" aria-live="polite"></p>
+          </header>
+          <div id="results-body" class="offers"></div>
+        </section>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
