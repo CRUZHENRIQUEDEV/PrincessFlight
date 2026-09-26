@@ -1,4 +1,4 @@
-// Versão: 1.7
+// Versão: 1.8
 import { applyOfferFilters } from './filters';
 import { markAcrossDestinations, markBargains } from './price-anomaly';
 import { buildSearchPlan } from './search-plan';
@@ -38,10 +38,24 @@ export function presentAnywhereOffers(
   originIata: string,
   sort: OfferSort = 'price',
   bargainRatio = 0.7,
+  scope?: SearchCriteria['scope'],
+  airports: readonly Airport[] = [],
 ): FlightOffer[] {
   const origin = originIata.toUpperCase();
-  const cheapest = [...cheapestByDestination(stored.filter((offer) => offer.origin === origin)).values()];
+  const mine = stored.filter((offer) => offer.origin === origin && matchesAnywhereScope(offer.destination, scope, airports));
+  const cheapest = [...cheapestByDestination(mine).values()];
   return markAcrossDestinations(cheapest, bargainRatio).sort(compareOffers(sort));
+}
+
+function matchesAnywhereScope(
+  destination: string,
+  scope: SearchCriteria['scope'] | undefined,
+  airports: readonly Airport[],
+): boolean {
+  if (!scope) return true;
+  const airport = airports.find((item) => item.iata === destination);
+  const international = !airport || airport.country !== 'BR' || airport.region === 'internacional';
+  return scope === 'internacional' ? international : !international;
 }
 
 export function groupOffersByDestination(offers: readonly FlightOffer[]): FlightOffer[][] {

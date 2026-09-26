@@ -48,6 +48,9 @@ describe('agrupamento', () => {
     expect(shown.map((offer) => offer.id)).toEqual(['barato', 'medio', 'caro']);
     expect(shown[0]?.isBargain).toBe(true);
     expect(shown[2]?.isBargain).toBe(false);
+    const recife = { ...sampleAirports()[1]!, iata: 'REC', city: 'Recife' };
+    const abroad = presentAnywhereOffers(offers, 'GRU', 'price', 0.7, 'internacional', [...sampleAirports(), recife]);
+    expect(abroad.map((offer) => offer.destination)).toEqual(['LIS']);
   });
 
   it('mostra só os destinos favoritos, em qualquer data', () => {

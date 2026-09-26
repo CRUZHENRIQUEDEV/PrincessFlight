@@ -1,4 +1,4 @@
-// Versão: 2.6
+// Versão: 2.7
 import { AIRPORTS } from '../data/airports';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
@@ -194,7 +194,14 @@ export async function startApp(doc: Document = document): Promise<void> {
       );
     }
     if (current?.mode === 'anywhere') {
-      return presentAnywhereOffers(current.offers, current.criteria.originIata, parsed.criteria.offerSort, current.criteria.bargainRatio);
+      return presentAnywhereOffers(
+        current.offers,
+        current.criteria.originIata,
+        parsed.criteria.offerSort,
+        current.criteria.bargainRatio,
+        parsed.criteria.scope,
+        AIRPORTS,
+      );
     }
     return presentOffers(offers, parsed.criteria, AIRPORTS);
   }
@@ -570,11 +577,11 @@ export async function startApp(doc: Document = document): Promise<void> {
     panel?.toggleAttribute('hidden', !active);
     anywhere?.toggleAttribute('hidden', current?.mode !== 'anywhere');
     const dateButton = doc.getElementById('date-open');
-    const locked = current?.mode === 'favorites' || current?.mode === 'anywhere';
-    if (dateButton instanceof HTMLButtonElement) dateButton.disabled = locked;
+    const lockedDates = current?.mode === 'favorites' || current?.mode === 'anywhere';
+    if (dateButton instanceof HTMLButtonElement) dateButton.disabled = lockedDates;
     for (const id of ['scope-nacional', 'scope-internacional']) {
       const input = doc.getElementById(id);
-      if (input instanceof HTMLInputElement) input.disabled = locked;
+      if (input instanceof HTMLInputElement) input.disabled = current?.mode === 'favorites';
     }
     if (!active || !current) return;
     const select = doc.getElementById('favorite-destination');
@@ -638,6 +645,7 @@ export async function startApp(doc: Document = document): Promise<void> {
 function favoriteCriteriaFromForm(parsed: ParsedCriteria): SavedSearch['criteria'] {
   return {
     ...favoritesCriteria(parsed.criteria.originIata),
+    scope: parsed.criteria.scope,
     delayBetweenCallsSeconds: parsed.criteria.delayBetweenCallsSeconds,
     repeatEveryMinutes: parsed.criteria.repeatEveryMinutes,
     bargainRatio: parsed.criteria.bargainRatio,
