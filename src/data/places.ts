@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 export interface PlaceName {
   city: string;
   country: string;
@@ -10596,4 +10596,41 @@ export function placeCaption(code: string, fallback = code): string {
   const place = placeOf(code);
   if (!place) return fallback;
   return place.country ? place.city + ', ' + place.country : place.city;
+}
+
+export interface PlaceChoice {
+  code: string;
+  label: string;
+}
+
+let cachedChoices: PlaceChoice[] | null = null;
+
+/** Aeroportos e cidades com código de 3 letras, para escolher um favorito. */
+export function placeChoices(): readonly PlaceChoice[] {
+  if (cachedChoices) return cachedChoices;
+  cachedChoices = Object.entries(PLACES)
+    .filter(([code]) => /^[A-Z]{3}$/.test(code))
+    .map(([code, place]) => ({ code, label: choiceLabel(place, code) }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'));
+  return cachedChoices;
+}
+
+/** Aceita o código (OPO) ou o rótulo completo da lista. */
+export function matchPlaceCode(text: string): string | null {
+  const raw = text.trim();
+  if (!raw) return null;
+  const wrapped = /\(([A-Za-z]{3})\)\s*$/.exec(raw);
+  if (wrapped) {
+    const code = wrapped[1].toUpperCase();
+    return placeOf(code) ? code : null;
+  }
+  const code = raw.toUpperCase();
+  if (/^[A-Z]{3}$/.test(code) && placeOf(code)) return code;
+  const needle = raw.toLocaleLowerCase('pt-BR');
+  const hits = placeChoices().filter((choice) => placeOf(choice.code)?.city.toLocaleLowerCase('pt-BR') === needle);
+  return hits.length === 1 ? hits[0].code : null;
+}
+
+function choiceLabel(place: PlaceName, code: string): string {
+  return place.country ? `${place.city}, ${place.country} (${code})` : `${place.city} (${code})`;
 }

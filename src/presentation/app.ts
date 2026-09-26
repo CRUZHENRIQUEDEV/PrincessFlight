@@ -1,6 +1,6 @@
-// Versão: 2.8
+// Versão: 2.9
 import { AIRPORTS } from '../data/airports';
-import { placeOf } from '../data/places';
+import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
 import { calendarDay, todayIso } from '../domain/iso-date';
@@ -153,9 +153,16 @@ export async function startApp(doc: Document = document): Promise<void> {
   byId(doc, 'save-button').addEventListener('click', () => { void saveProfile(); });
   byId(doc, 'clear-button').addEventListener('click', () => clearOffers());
   byId(doc, 'new-search').addEventListener('click', () => { void createSearch(); });
+  fillPlaceList(doc);
+  const favoriteInput = doc.getElementById('favorite-destination');
   doc.getElementById('favorite-add')?.addEventListener('click', () => {
-    const select = doc.getElementById('favorite-destination');
-    if (select instanceof HTMLSelectElement && select.value) changeFavorite(select.value, true);
+    if (favoriteInput instanceof HTMLInputElement) addTypedFavorite(favoriteInput);
+  });
+  favoriteInput?.addEventListener('keydown', (event) => {
+    if (!(event instanceof KeyboardEvent) || event.key !== 'Enter') return;
+    if (!(favoriteInput instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    addTypedFavorite(favoriteInput);
   });
 
   updateEstimate(doc);
@@ -585,31 +592,34 @@ export async function startApp(doc: Document = document): Promise<void> {
       if (input instanceof HTMLInputElement) input.disabled = current?.mode === 'favorites';
     }
     if (!active || !current) return;
-    const select = doc.getElementById('favorite-destination');
     const chips = doc.getElementById('favorite-chips');
-    if (!(select instanceof HTMLSelectElement) || !chips) return;
-    const chosen = new Set(current.favoriteDestinations);
-    const previous = select.value;
-    const options = AIRPORTS.filter((airport) => airport.iata !== current.criteria.originIata && !chosen.has(airport.iata));
-    select.replaceChildren(...options.map((airport) => {
-      const option = doc.createElement('option');
-      option.value = airport.iata;
-      option.textContent = `${airport.city} (${airport.iata})`;
-      return option;
-    }));
-    if (options.some((airport) => airport.iata === previous)) select.value = previous;
+    if (!chips) return;
     chips.replaceChildren(...current.favoriteDestinations.map((code) => favoriteChip(code)));
   }
 
   function favoriteChip(code: string): HTMLElement {
     const item = doc.createElement('li');
-    const airport = AIRPORTS.find((entry) => entry.iata === code);
     const button = doc.createElement('button');
     button.type = 'button';
-    button.textContent = `${airport?.city ?? code} · remover`;
+    button.textContent = `${placeOf(code)?.city ?? code} · remover`;
     button.addEventListener('click', () => changeFavorite(code, false));
     item.append(button);
     return item;
+  }
+
+  function addTypedFavorite(input: HTMLInputElement): void {
+    const code = matchPlaceCode(input.value);
+    const current = searches.find((search) => search.mode === 'favorites');
+    if (!code || !current) {
+      setStatus('Escolha o aeroporto na lista ou digite o código de 3 letras, como OPO.', true);
+      return;
+    }
+    if (code === current.criteria.originIata.toUpperCase()) {
+      setStatus('A origem não entra como destino favorito.', true);
+      return;
+    }
+    input.value = '';
+    changeFavorite(code, true);
   }
 
   function changeFavorite(iata: string, included: boolean): void {
@@ -793,6 +803,18 @@ function updateEstimate(doc: Document): void {
   const months = plan.months.length === 1 ? 'mês' : 'meses';
   const warning = plan.callCount > 60 ? ' Volume alto para a cota da API.' : '';
   estimate.textContent = `${plan.destinations.length} destinos · ${plan.months.length} ${months} · ${plan.callCount} chamadas · cerca de ${minutes} min.${warning}`;
+}
+
+function fillPlaceList(doc: Document): void {
+  const list = doc.getElementById('favorite-places');
+  if (!(list instanceof HTMLDataListElement) || list.childElementCount > 0) return;
+  const fragment = doc.createDocumentFragment();
+  for (const choice of placeChoices()) {
+    const option = doc.createElement('option');
+    option.value = choice.label;
+    fragment.append(option);
+  }
+  list.append(fragment);
 }
 
 function openingMessage(persistent: boolean, token: string): string {

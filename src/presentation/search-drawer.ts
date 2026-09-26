@@ -1,4 +1,5 @@
-// Versão: 1.2
+// Versão: 1.3
+import { matchPlaceCode } from '../data/places';
 import { buildSearchBrief, type SearchBrief } from '../domain/search-brief';
 import type { Airport, FlightOffer } from '../domain/types';
 import type { SavedSearch } from '../domain/saved-search';
@@ -39,13 +40,13 @@ export class SearchDrawer {
     const body = this.root.querySelector('.offer-drawer__body');
     if (!body) return;
     const choosing = document.activeElement;
-    const previous = choosing instanceof HTMLSelectElement && choosing.id === 'drawer-favorite-destination' ? choosing.value : '';
-    body.replaceChildren(sheet(brief, addableAirports(search, airports)));
+    const previous = choosing instanceof HTMLInputElement && choosing.id === 'drawer-favorite-destination' ? choosing.value : '';
+    body.replaceChildren(sheet(brief, search.mode === 'favorites'));
     if (!previous) return;
-    const select = body.querySelector('#drawer-favorite-destination');
-    if (!(select instanceof HTMLSelectElement)) return;
-    if ([...select.options].some((option) => option.value === previous)) select.value = previous;
-    select.focus();
+    const field = body.querySelector('#drawer-favorite-destination');
+    if (!(field instanceof HTMLInputElement)) return;
+    field.value = previous;
+    field.focus();
   }
 
   hide(): void {
@@ -54,35 +55,32 @@ export class SearchDrawer {
   }
 
   private addSelected(): void {
-    const select = this.root.querySelector('#drawer-favorite-destination');
-    if (!(select instanceof HTMLSelectElement) || !select.value) return;
-    this.onAddDestination(select.value);
+    const field = this.root.querySelector('#drawer-favorite-destination');
+    if (!(field instanceof HTMLInputElement)) return;
+    const code = matchPlaceCode(field.value);
+    if (!code) return;
+    field.value = '';
+    this.onAddDestination(code);
   }
 }
 
-function sheet(brief: SearchBrief, choices: readonly Airport[]): HTMLElement {
+function sheet(brief: SearchBrief, canAdd: boolean): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'offer-sheet';
   const facts = document.createElement('dl');
   facts.className = 'offer-sheet__facts';
   for (const line of brief.lines) facts.append(fact(line.label, displayValue(line.label, line.value)));
   wrap.append(facts);
-  if (brief.removable || brief.destinations.length > 0) wrap.append(destinationList(brief, choices));
+  if (brief.removable || brief.destinations.length > 0) wrap.append(destinationList(brief, canAdd));
   return wrap;
 }
 
-function addableAirports(search: SavedSearch, airports: readonly Airport[]): Airport[] {
-  if (search.mode !== 'favorites') return [];
-  const chosen = new Set(search.favoriteDestinations);
-  return airports.filter((airport) => airport.iata !== search.criteria.originIata && !chosen.has(airport.iata));
-}
-
-function destinationList(brief: SearchBrief, choices: readonly Airport[]): HTMLElement {
+function destinationList(brief: SearchBrief, canAdd: boolean): HTMLElement {
   const section = document.createElement('section');
   const title = document.createElement('h3');
   title.textContent = 'Por destino';
   section.append(title);
-  if (brief.removable) section.append(addDestination(choices));
+  if (canAdd) section.append(addDestination());
   const list = document.createElement('ul');
   list.className = 'offer-sheet__places';
   for (const item of brief.destinations) list.append(destinationItem(item, brief.removable));
@@ -90,26 +88,22 @@ function destinationList(brief: SearchBrief, choices: readonly Airport[]): HTMLE
   return section;
 }
 
-function addDestination(choices: readonly Airport[]): HTMLElement {
+function addDestination(): HTMLElement {
   const row = document.createElement('div');
   row.className = 'favorites-add';
   const label = document.createElement('label');
   label.textContent = 'Adicionar destino';
-  const select = document.createElement('select');
-  select.id = 'drawer-favorite-destination';
-  for (const airport of choices) {
-    const option = document.createElement('option');
-    option.value = airport.iata;
-    option.textContent = `${airport.city} (${airport.iata})`;
-    select.append(option);
-  }
-  label.append(select);
+  const field = document.createElement('input');
+  field.id = 'drawer-favorite-destination';
+  field.setAttribute('list', 'favorite-places');
+  field.placeholder = 'Cidade, país ou código';
+  field.autocomplete = 'off';
+  label.append(field);
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'button';
   button.dataset.addDestination = 'true';
   button.textContent = 'Adicionar';
-  button.disabled = choices.length === 0;
   row.append(label, button);
   return row;
 }

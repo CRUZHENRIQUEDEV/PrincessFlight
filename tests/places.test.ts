@@ -1,6 +1,6 @@
-// Versão: 1.0
+// Versão: 1.1
 import { describe, expect, it } from 'vitest';
-import { placeCaption, placeOf } from '../src/data/places';
+import { matchPlaceCode, placeCaption, placeOf } from '../src/data/places';
 
 describe('cidade e país', () => {
   it('traduz o código da cidade', () => {
@@ -12,5 +12,11 @@ describe('cidade e país', () => {
   it('devolve nulo quando o código não existe', () => {
     expect(placeOf('ZZZZ')).toBeNull();
     expect(placeCaption('ZZZZ', 'código')).toBe('código');
+  });
+
+  it('encontra Porto pelo código ou pelo rótulo', () => {
+    expect(matchPlaceCode('opo')).toBe('OPO');
+    expect(matchPlaceCode('Porto, Portugal (OPO)')).toBe('OPO');
+    expect(matchPlaceCode('não existe')).toBeNull();
   });
 });

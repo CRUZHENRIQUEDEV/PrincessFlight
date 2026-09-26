@@ -1,4 +1,4 @@
-<!-- Versão: 3.4 -->
+<!-- Versão: 3.5 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -77,8 +77,9 @@
             <div class="favorites-add">
               <label>
                 Adicionar destino
-                <select id="favorite-destination"></select>
+                <input id="favorite-destination" list="favorite-places" placeholder="Cidade, país ou código" autocomplete="off" />
               </label>
+              <datalist id="favorite-places"></datalist>
               <button id="favorite-add" class="button" type="button">Adicionar</button>
             </div>
             <ul id="favorite-chips" class="favorite-chips"></ul>

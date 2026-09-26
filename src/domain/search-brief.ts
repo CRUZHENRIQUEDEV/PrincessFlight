@@ -1,4 +1,5 @@
-// Versão: 1.3
+// Versão: 1.4
+import { placeOf } from '../data/places';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
 
@@ -89,6 +90,6 @@ function cheapestByDestination(search: SavedSearch, airports: readonly Airport[]
     const offer = pool
       .filter((item) => item.destination === code)
       .sort((left, right) => left.price - right.price)[0] ?? null;
-    return { iata: code, city: airport?.city ?? code, offer };
+    return { iata: code, city: placeOf(code)?.city ?? airport?.city ?? code, offer };
   });
 }
