@@ -1,14 +1,15 @@
-// Versão: 2.5
+// Versão: 2.6
 import { AIRPORTS } from '../data/airports';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
 import { calendarDay, todayIso } from '../domain/iso-date';
-import { presentFavoriteOffers, presentOffers } from '../domain/present-offers';
+import { presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../domain/present-offers';
 import { markBargains } from '../domain/price-anomaly';
 import {
   createSavedSearch,
-  ensureFavoritesSearch,
+  ensurePinnedSearches,
   favoritesCriteria,
+  isPinnedMode,
   nextSearchName,
   withFavoriteDestination,
   withSearch,
@@ -192,6 +193,9 @@ export async function startApp(doc: Document = document): Promise<void> {
         current.criteria.bargainRatio,
       );
     }
+    if (current?.mode === 'anywhere') {
+      return presentAnywhereOffers(current.offers, current.criteria.originIata, parsed.criteria.offerSort, current.criteria.bargainRatio);
+    }
     return presentOffers(offers, parsed.criteria, AIRPORTS);
   }
 
@@ -255,7 +259,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     if (parsed.fieldError || alert.fieldError) return;
     const current = searches.find((search) => search.id === activeId);
     if (!current) return;
-    if (current.mode === 'favorites') {
+    if (isPinnedMode(current.mode)) {
       searches = withSearch(searches, {
         ...current,
         criteria: favoriteCriteriaFromForm(parsed),
@@ -276,8 +280,8 @@ export async function startApp(doc: Document = document): Promise<void> {
 
   function currentSettings(): StoredSettings | null {
     const active = searches.find((search) => search.id === activeId);
-    if (active?.mode === 'favorites') {
-      const regular = searches.find((search) => search.mode !== 'favorites');
+    if (active && isPinnedMode(active.mode)) {
+      const regular = searches.find((search) => search.mode === 'filters');
       const source = regular ?? active;
       return {
         token: readToken(doc),
@@ -329,8 +333,8 @@ export async function startApp(doc: Document = document): Promise<void> {
   async function createSearch(): Promise<void> {
     syncActiveFromForm();
     await persist(activeId);
-    const base = searches.find((search) => search.id === activeId && search.mode !== 'favorites')
-      ?? searches.find((search) => search.mode !== 'favorites');
+    const base = searches.find((search) => search.id === activeId && search.mode === 'filters')
+      ?? searches.find((search) => search.mode === 'filters');
     const created = createSavedSearch(
       nextSearchName(searches),
       base?.criteria ?? createDefaultCriteria(),
@@ -434,7 +438,7 @@ export async function startApp(doc: Document = document): Promise<void> {
   function openOffer(offer: FlightOffer): void {
     openOfferId = offer.id;
     drawerState = { phase: 'idle', message: `Última consulta em ${formatWhen(offer.fetchedAt)}.` };
-    paintDrawer(presentOffers(offers, parseCriteria(readCriteriaInput(doc)).criteria, AIRPORTS));
+    paintDrawer(visibleOffers());
   }
 
   function closeOffer(): void {
@@ -561,13 +565,16 @@ export async function startApp(doc: Document = document): Promise<void> {
 
   function paintFavorites(current: SavedSearch | undefined): void {
     const panel = doc.getElementById('favorites-panel');
+    const anywhere = doc.getElementById('anywhere-panel');
     const active = current?.mode === 'favorites';
     panel?.toggleAttribute('hidden', !active);
+    anywhere?.toggleAttribute('hidden', current?.mode !== 'anywhere');
     const dateButton = doc.getElementById('date-open');
-    if (dateButton instanceof HTMLButtonElement) dateButton.disabled = active;
+    const locked = current?.mode === 'favorites' || current?.mode === 'anywhere';
+    if (dateButton instanceof HTMLButtonElement) dateButton.disabled = locked;
     for (const id of ['scope-nacional', 'scope-internacional']) {
       const input = doc.getElementById(id);
-      if (input instanceof HTMLInputElement) input.disabled = active;
+      if (input instanceof HTMLInputElement) input.disabled = locked;
     }
     if (!active || !current) return;
     const select = doc.getElementById('favorite-destination');
@@ -658,8 +665,8 @@ async function loadSearches(store: FlightStore, saved: StoredSettings | null): P
       keepAlive: search.keepAlive !== false,
     }))
     : [await firstSearch(store, saved, now)];
-  const origin = saved?.criteria.originIata ?? mapped.find((search) => search.mode !== 'favorites')?.criteria.originIata ?? 'BSB';
-  const ensured = ensureFavoritesSearch(mapped, origin, now);
+  const origin = saved?.criteria.originIata ?? mapped.find((search) => search.mode === 'filters')?.criteria.originIata ?? 'BSB';
+  const ensured = ensurePinnedSearches(mapped, origin, now);
   for (const search of ensured) {
     if (!stored.some((item) => item.id === search.id)) await store.saveSearch(search);
   }
@@ -680,7 +687,7 @@ async function firstSearch(store: FlightStore, saved: StoredSettings | null, now
 
 function pickActive(searches: readonly SavedSearch[], activeSearchId: string | undefined): string {
   if (activeSearchId && searches.some((search) => search.id === activeSearchId)) return activeSearchId;
-  const regular = searches.find((search) => search.mode !== 'favorites');
+  const regular = searches.find((search) => search.mode === 'filters');
   return (regular ?? searches[0]).id;
 }
 
@@ -755,6 +762,11 @@ function updateEstimate(doc: Document): void {
     return;
   }
   const favorites = doc.getElementById('favorites-panel');
+  const anywhere = doc.getElementById('anywhere-panel');
+  if (anywhere && !anywhere.hidden) {
+    estimate.textContent = '1 chamada · qualquer destino com preço no cache · qualquer data.';
+    return;
+  }
   if (favorites && !favorites.hidden) {
     const count = doc.getElementById('favorite-chips')?.childElementCount ?? 0;
     estimate.textContent = count === 0

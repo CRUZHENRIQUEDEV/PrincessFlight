@@ -1,6 +1,6 @@
 // Versão: 1.2
 import { describe, expect, it, vi } from 'vitest';
-import { buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, cacheCityCode, calendarEndpoint, cheapEndpoint, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
+import { anywhereEndpoint, buildAnywhereUrl, buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, cacheCityCode, calendarEndpoint, cheapEndpoint, parseAnywhereBody, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
 import type { RouteMonthQuery } from '../src/infrastructure/travelpayouts-client';
 
@@ -13,6 +13,26 @@ const query: RouteMonthQuery = {
 };
 
 describe('cliente Travelpayouts', () => {
+  it('lê o menor preço de cada destino, sem escolher data', () => {
+    const endpoint = anywhereEndpoint('https://api.travelpayouts.com/aviasales/v3/prices_for_dates');
+    const url = new URL(buildAnywhereUrl({ token: 'token-de-teste', origin: 'GIG', signal: query.signal }, endpoint));
+    expect(url.pathname).toBe('/v1/city-directions');
+    expect(url.searchParams.get('origin')).toBe('RIO');
+    expect(url.searchParams.get('currency')).toBe('brl');
+    const tickets = parseAnywhereBody({
+      success: true,
+      currency: 'brl',
+      data: {
+        RIO: { price: 10, airline: 'G3', flight_number: 1, departure_at: '2026-12-01T08:00:00Z', return_at: '2026-12-08T18:00:00Z', destination: 'RIO' },
+        REC: { price: 800, airline: 'AD', flight_number: 9, departure_at: '2026-11-02T08:00:00Z', return_at: '2026-11-09T18:00:00Z' },
+        LIS: { price: 2100, airline: 'TP', flight_number: 3, departure_at: '2026-12-10T08:00:00Z', return_at: '2026-12-20T18:00:00Z' },
+      },
+    }, 'GIG');
+    expect(tickets.map((ticket) => ticket.destination)).toEqual(['REC', 'LIS']);
+    expect(tickets[0]?.origin).toBe('GIG');
+    expect(tickets[0]?.price).toBe(800);
+  });
+
   it('escolhe o menor preço de ida e volta, sem data fixa', () => {
     const endpoint = cheapEndpoint('https://api.travelpayouts.com/aviasales/v3/prices_for_dates');
     expect(endpoint).toBe('https://api.travelpayouts.com/v1/prices/cheap');

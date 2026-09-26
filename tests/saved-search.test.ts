@@ -1,7 +1,7 @@
 // Versão: 1.0
 import { describe, expect, it } from 'vitest';
 import { createDefaultAlertRules } from '../src/domain/alert-rules';
-import { createSavedSearch, ensureFavoritesSearch, nextSearchName, normalizeSavedSearch, refreshEveryMinutes, rescheduleRound, searchCounter, withFavoriteDestination, withoutSearch } from '../src/domain/saved-search';
+import { createSavedSearch, ensureFavoritesSearch, ensurePinnedSearches, nextSearchName, normalizeSavedSearch, refreshEveryMinutes, rescheduleRound, searchCounter, withFavoriteDestination, withoutSearch } from '../src/domain/saved-search';
 import { sampleCriteria } from './fixtures';
 
 describe('pesquisas salvas', () => {
@@ -24,8 +24,12 @@ describe('pesquisas salvas', () => {
     expect(favorites[0].name).toBe('Destinos favoritos');
     expect(favorites[1].id).toBe(first.id);
     expect(ensureFavoritesSearch(favorites, 'BSB', '2026-09-26T12:00:00Z')).toHaveLength(2);
-    const pinned = withFavoriteDestination(favorites[0], 'ssa', true);
-    expect(pinned.favoriteDestinations).toEqual(['SSA']);
-    expect(withFavoriteDestination(pinned, 'BSB', true).favoriteDestinations).toEqual(['SSA']);
+    const pinned = ensurePinnedSearches([first], 'BSB', '2026-09-26T12:00:00Z');
+    expect(pinned.map((search) => search.mode)).toEqual(['favorites', 'anywhere', 'filters']);
+    expect(pinned[1].name).toBe('Voos baratos');
+    expect(ensurePinnedSearches(pinned, 'BSB', '2026-09-26T12:00:00Z')).toHaveLength(3);
+    const withSalvador = withFavoriteDestination(favorites[0], 'ssa', true);
+    expect(withSalvador.favoriteDestinations).toEqual(['SSA']);
+    expect(withFavoriteDestination(withSalvador, 'BSB', true).favoriteDestinations).toEqual(['SSA']);
   });
 });

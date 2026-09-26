@@ -1,4 +1,4 @@
-<!-- Versão: 3.3 -->
+<!-- Versão: 3.4 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -16,7 +16,7 @@
           <h2>Pesquisas</h2>
           <button id="new-search" class="button button--quiet" type="button">Nova</button>
         </div>
-        <p class="help">Destinos favoritos já fica na lista. Selecione essa pesquisa e adicione as cidades. Cada pesquisa ligada atualiza os preços em segundo plano.</p>
+        <p class="help">Destinos favoritos e Voos baratos já ficam na lista. Voos baratos consulta qualquer destino, em qualquer data, e ordena pelo menor preço.</p>
         <p id="search-count" class="help"></p>
         <div id="search-list" class="search-list"></div>
       </aside>
@@ -82,6 +82,9 @@
               <button id="favorite-add" class="button" type="button">Adicionar</button>
             </div>
             <ul id="favorite-chips" class="favorite-chips"></ul>
+          </div>
+          <div id="anywhere-panel" class="anywhere-panel" hidden>
+            <p class="help">Pesquisa automática do menor preço de ida e volta para cada destino que o cache já conhece, em qualquer data. A lista começa pelo mais barato.</p>
           </div>
           <ol id="search-feed" class="search-feed" aria-live="polite"></ol>
           <details id="more-filters" class="drawer">

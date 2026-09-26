@@ -1,4 +1,4 @@
-// Versão: 1.2
+// Versão: 1.3
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
 
@@ -28,8 +28,9 @@ export function buildSearchBrief(
   const origin = airports.find((airport) => airport.iata === search.criteria.originIata);
   const cheapest = [...search.offers].sort((left, right) => left.price - right.price)[0] ?? null;
   const favorites = search.mode === 'favorites';
+  const anywhere = search.mode === 'anywhere';
   const lines: BriefLine[] = [
-    { label: 'Tipo', value: favorites ? 'Destinos favoritos' : 'Filtros' },
+    { label: 'Tipo', value: favorites ? 'Destinos favoritos' : anywhere ? 'Voos baratos' : 'Filtros' },
     { label: 'Situação', value: search.running ? 'Rodando' : 'Parada' },
     { label: 'Último aviso', value: search.lastStatus || 'Sem aviso.' },
     { label: 'Atualizada', value: search.updatedAt },
@@ -45,6 +46,11 @@ export function buildSearchBrief(
     lines.splice(5, 0, {
       label: 'Como busca',
       value: 'Menor ida e volta já guardada no cache, sem escolher data. Rota que ninguém buscou volta vazia.',
+    });
+  } else if (anywhere) {
+    lines.splice(5, 0, {
+      label: 'Como busca',
+      value: 'Uma consulta ao cache, qualquer destino e qualquer data. A lista começa pelo menor preço. Rota que ninguém buscou não aparece.',
     });
   } else {
     lines.splice(5, 0, { label: 'Datas', value: dateLabel(search) }, { label: 'Abrangência', value: scopeLabel(search) });

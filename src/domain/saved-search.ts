@@ -1,12 +1,14 @@
-// Versão: 1.6
+// Versão: 1.7
 import { createDefaultAlertRules, type AlertRules } from './alert-rules';
 import type { FlightOffer, SearchCriteria } from './types';
 
 export const FAVORITES_SEARCH_NAME = 'Destinos favoritos';
+export const ANYWHERE_SEARCH_NAME = 'Voos baratos';
 
 export const FAVORITES_EMPTY_STATUS = 'Adicione um destino favorito. A busca pega a ida e a volta mais baratas, em qualquer data.';
+export const ANYWHERE_STATUS = 'Pronta. Uma consulta traz o menor preço de cada destino que o cache já conhece, em qualquer data.';
 
-export type SearchMode = 'filters' | 'favorites';
+export type SearchMode = 'filters' | 'favorites' | 'anywhere';
 
 export interface SearchProgress {
   done: number;
@@ -80,8 +82,21 @@ export function createFavoritesSearch(originIata: string, now: string): SavedSea
   return { ...search, mode: 'favorites', lastStatus: FAVORITES_EMPTY_STATUS };
 }
 
+export function anywhereCriteria(originIata: string): SearchCriteria {
+  return favoritesCriteria(originIata);
+}
+
+export function createAnywhereSearch(originIata: string, now: string): SavedSearch {
+  const search = createSavedSearch(ANYWHERE_SEARCH_NAME, anywhereCriteria(originIata), createDefaultAlertRules(), now);
+  return { ...search, mode: 'anywhere', lastStatus: ANYWHERE_STATUS };
+}
+
+export function isPinnedMode(mode: SearchMode): boolean {
+  return mode === 'favorites' || mode === 'anywhere';
+}
+
 export function normalizeSavedSearch(search: SavedSearch): SavedSearch {
-  const mode = search.mode === 'favorites' ? 'favorites' : 'filters';
+  const mode = search.mode === 'favorites' || search.mode === 'anywhere' ? search.mode : 'filters';
   const codes = Array.isArray(search.favoriteDestinations) ? search.favoriteDestinations : [];
   return {
     ...search,
@@ -102,6 +117,21 @@ export function ensureFavoritesSearch(
   const rest = normalized.filter((search) => search.mode !== 'favorites');
   if (!favorites) return [createFavoritesSearch(originIata, now), ...rest];
   return [favorites, ...rest];
+}
+
+/** Favoritos no topo e, em seguida, a pesquisa de qualquer destino. */
+export function ensurePinnedSearches(
+  searches: readonly SavedSearch[],
+  originIata: string,
+  now: string,
+): SavedSearch[] {
+  const withFavorites = ensureFavoritesSearch(searches, originIata, now);
+  const anywhere = withFavorites.find((search) => search.mode === 'anywhere');
+  const rest = withFavorites.filter((search) => search.mode !== 'anywhere');
+  const pinned = anywhere ?? createAnywhereSearch(originIata, now);
+  const favorites = rest.filter((search) => search.mode === 'favorites');
+  const others = rest.filter((search) => search.mode !== 'favorites');
+  return [...favorites, pinned, ...others];
 }
 
 export function withFavoriteDestination(search: SavedSearch, iata: string, included: boolean): SavedSearch {

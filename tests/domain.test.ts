@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
-import { groupOffersByDestination, presentFavoriteOffers, presentOffers } from '../src/domain/present-offers';
+import { groupOffersByDestination, presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../src/domain/present-offers';
 import { parseAirlines, parseCriteria } from '../src/domain/criteria';
 import type { Airport, FlightOffer, HolidayWindow } from '../src/domain/types';
 import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
@@ -35,6 +35,19 @@ describe('agrupamento', () => {
     ];
     const groups = groupOffersByDestination(offers);
     expect(groups.map((group) => group.map((offer) => offer.id))).toEqual([['barato', 'caro'], ['recife']]);
+  });
+
+  it('ordena qualquer destino pelo menor preço e marca quem fica abaixo da mediana geral', () => {
+    const offers = [
+      sampleOffer({ id: 'caro', destination: 'LIS', price: 4000 }),
+      sampleOffer({ id: 'barato', destination: 'REC', price: 500 }),
+      sampleOffer({ id: 'medio', destination: 'SSA', price: 1000 }),
+      sampleOffer({ id: 'repetido', destination: 'REC', price: 900 }),
+    ];
+    const shown = presentAnywhereOffers(offers, 'GRU', 'price', 0.7);
+    expect(shown.map((offer) => offer.id)).toEqual(['barato', 'medio', 'caro']);
+    expect(shown[0]?.isBargain).toBe(true);
+    expect(shown[2]?.isBargain).toBe(false);
   });
 
   it('mostra só os destinos favoritos, em qualquer data', () => {

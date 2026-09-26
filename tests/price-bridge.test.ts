@@ -28,7 +28,7 @@ describe('ponte de preços', () => {
     const fetchFn = vi.fn<typeof fetch>();
     const foreign = await handleBridge(request('/v1/prices/cheap', 'https://exemplo.com'), fetchFn);
     const post = await handleBridge(new Request('https://ponte.local/v1/prices/cheap', { method: 'POST', headers: { Origin: ORIGIN } }), fetchFn);
-    const other = await handleBridge(request('/v1/city-directions'), fetchFn);
+    const other = await handleBridge(request('/v1/prices/latest'), fetchFn);
     expect(foreign.status).toBe(403);
     expect(post.status).toBe(405);
     expect(other.status).toBe(404);

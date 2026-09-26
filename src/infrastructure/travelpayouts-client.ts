@@ -1,4 +1,4 @@
-// Versão: 1.7
+// Versão: 1.8
 import { calendarDay } from '../domain/iso-date';
 import type { RawTicket } from '../domain/types';
 import { delay, isAbortError } from './delay';
@@ -20,12 +20,19 @@ export interface FlightPriceProvider {
   searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]>;
   searchCalendarMonth?(query: RouteMonthQuery): Promise<RawTicket[]>;
   searchCheapest?(query: CheapQuery): Promise<RawTicket | null>;
+  searchAnywhere?(query: AnywhereQuery): Promise<RawTicket[]>;
 }
 
 export interface CheapQuery {
   token: string;
   origin: string;
   destination: string;
+  signal: AbortSignal;
+}
+
+export interface AnywhereQuery {
+  token: string;
+  origin: string;
   signal: AbortSignal;
 }
 
@@ -60,6 +67,19 @@ export function calendarEndpoint(pricesEndpoint: string): string {
 
 export function cheapEndpoint(pricesEndpoint: string): string {
   return pricesEndpoint.replace('/aviasales/v3/prices_for_dates', '/v1/prices/cheap');
+}
+
+export function anywhereEndpoint(pricesEndpoint: string): string {
+  return pricesEndpoint.replace('/aviasales/v3/prices_for_dates', '/v1/city-directions');
+}
+
+export function buildAnywhereUrl(query: AnywhereQuery, endpoint: string): string {
+  const params = new URLSearchParams({
+    origin: cacheCityCode(query.origin),
+    currency: 'brl',
+    market: 'br',
+  });
+  return `${endpoint}?${params.toString()}`;
 }
 
 export function buildCheapUrl(query: CheapQuery, endpoint: string): string {
@@ -110,6 +130,16 @@ export class TravelpayoutsClient implements FlightPriceProvider {
     }
   }
 
+  async searchAnywhere(query: AnywhereQuery): Promise<RawTicket[]> {
+    try {
+      return await this.requestAnywhere(query);
+    } catch (error) {
+      if (!(error instanceof TravelpayoutsError) || error.code !== 'rate') throw error;
+      await this.sleep(2_000, query.signal);
+      return this.requestAnywhere(query);
+    }
+  }
+
   async searchCalendarMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
     const response = await this.fetchCalendar(query);
     if (response.status === 401 || response.status === 403) {
@@ -145,6 +175,16 @@ export class TravelpayoutsClient implements FlightPriceProvider {
 
   private async fetchResponse(query: RouteMonthQuery, page: number): Promise<Response> {
     return this.fetchUrl(buildPricesForDatesUrl(query, this.endpoint, page), query);
+  }
+
+  private async requestAnywhere(query: AnywhereQuery): Promise<RawTicket[]> {
+    const response = await this.fetchUrl(buildAnywhereUrl(query, anywhereEndpoint(this.endpoint)), query);
+    if (response.status === 429) throw new TravelpayoutsError('Limite de chamadas da Travelpayouts.', 429, 'rate');
+    if (response.status === 401 || response.status === 403) {
+      throw new TravelpayoutsError('Token recusado. Confira em Perfil → API token.', response.status, 'auth');
+    }
+    if (!response.ok) throw new TravelpayoutsError('A Travelpayouts recusou a consulta.', response.status, 'api');
+    return parseAnywhereBody(await readBody(response), query.origin);
   }
 
   private async requestCheapest(query: CheapQuery): Promise<RawTicket | null> {
@@ -221,6 +261,33 @@ export function parseCheapBody(body: unknown, query: CheapQuery): RawTicket | nu
     if (!best || priced.price < best.price) best = priced;
   }
   return best;
+}
+
+export function parseAnywhereBody(body: unknown, origin: string): RawTicket[] {
+  const record = asRecord(body);
+  if (!record) throw new TravelpayoutsError('Resposta inválida da Travelpayouts.', null, 'api');
+  if (record.success === false) {
+    const message = text(record.error) || 'A Travelpayouts recusou a consulta.';
+    const code = /token|unauthor/i.test(message) ? 'auth' : 'api';
+    throw new TravelpayoutsError(clip(message), null, code);
+  }
+  const data = asRecord(record.data);
+  if (!data) return [];
+  const currency = text(record.currency).toUpperCase() || 'BRL';
+  const home = origin.trim().toUpperCase();
+  const city = cacheCityCode(home);
+  const tickets: RawTicket[] = [];
+  for (const [code, value] of Object.entries(data)) {
+    const row = asRecord(value);
+    if (!row) continue;
+    const destination = (text(row.destination) || code).toUpperCase();
+    if (!destination || destination === home || destination === city) continue;
+    const route: RouteMonthQuery = { token: '', origin: home, destination, month: '', signal: new AbortController().signal };
+    const ticket = toTicket(row, route, currency);
+    if (!ticket) continue;
+    tickets.push({ ...ticket, link: ticket.link || roundTripLink(ticket) });
+  }
+  return tickets.sort((left, right) => left.price - right.price);
 }
 
 function cheapBucket(data: Record<string, unknown> | null, destination: string): Record<string, unknown> | null {

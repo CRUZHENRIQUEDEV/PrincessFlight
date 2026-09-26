@@ -1,10 +1,11 @@
-// Versão: 1.0
+// Versão: 1.1
 const UPSTREAM = 'https://api.travelpayouts.com';
 const ALLOWED_ORIGIN = 'https://cruzhenriquedev.github.io';
 const ALLOWED_PATHS = new Set([
   '/aviasales/v3/prices_for_dates',
   '/v1/prices/cheap',
   '/v1/prices/calendar',
+  '/v1/city-directions',
 ]);
 
 export default {

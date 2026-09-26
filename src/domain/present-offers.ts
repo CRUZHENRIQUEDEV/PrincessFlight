@@ -1,6 +1,6 @@
-// Versão: 1.6
+// Versão: 1.7
 import { applyOfferFilters } from './filters';
-import { markBargains } from './price-anomaly';
+import { markAcrossDestinations, markBargains } from './price-anomaly';
 import { buildSearchPlan } from './search-plan';
 import type { Airport, FlightOffer, OfferSort, SearchCriteria } from './types';
 
@@ -30,6 +30,18 @@ export function presentFavoriteOffers(
   const allowed = new Set(destinations.map((code) => code.toUpperCase()));
   const visible = stored.filter((offer) => offer.origin === origin && allowed.has(offer.destination));
   return markBargains(visible, bargainRatio).sort(compareOffers(sort));
+}
+
+/** Um preço por destino, o mais barato primeiro, comparado com a mediana de todos. */
+export function presentAnywhereOffers(
+  stored: readonly FlightOffer[],
+  originIata: string,
+  sort: OfferSort = 'price',
+  bargainRatio = 0.7,
+): FlightOffer[] {
+  const origin = originIata.toUpperCase();
+  const cheapest = [...cheapestByDestination(stored.filter((offer) => offer.origin === origin)).values()];
+  return markAcrossDestinations(cheapest, bargainRatio).sort(compareOffers(sort));
 }
 
 export function groupOffersByDestination(offers: readonly FlightOffer[]): FlightOffer[][] {

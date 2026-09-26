@@ -1,4 +1,4 @@
-// Versão: 1.4
+// Versão: 1.5
 import { searchCounter, type SavedSearch } from '../domain/saved-search';
 
 export class SearchListView {
@@ -126,7 +126,11 @@ function meta(search: SavedSearch, offerCount: number | undefined): HTMLParagrap
   line.className = 'search-card__meta';
   const state = search.running ? 'Rodando' : 'Parada';
   const places = search.favoriteDestinations.length === 1 ? '1 destino' : `${search.favoriteDestinations.length} destinos`;
-  const kind = search.mode === 'favorites' ? `Favoritos · ${places} · ` : '';
+  const kind = search.mode === 'favorites'
+    ? `Favoritos · ${places} · `
+    : search.mode === 'anywhere'
+      ? 'Qualquer lugar · '
+      : '';
   line.textContent = `${kind}${state} · ${searchCounter(offerCount ?? search.offers.length, search.progress)}`;
   return line;
 }

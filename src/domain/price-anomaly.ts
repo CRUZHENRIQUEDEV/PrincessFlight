@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import type { FlightOffer } from './types';
 
 export function median(values: readonly number[]): number {
@@ -7,6 +7,12 @@ export function median(values: readonly number[]): number {
   const middle = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 0) return (sorted[middle - 1] + sorted[middle]) / 2;
   return sorted[middle];
+}
+
+/** Compara cada destino com a mediana de todos. Menos de dois preços não marca barganha. */
+export function markAcrossDestinations(offers: readonly FlightOffer[], ratio: number): FlightOffer[] {
+  const reference = offers.length < 2 ? null : median(offers.map((offer) => offer.price));
+  return offers.map((offer) => describeAgainstMedian(offer, reference, ratio));
 }
 
 /** Marca oferta cujo preço fica até `ratio` da mediana do mesmo destino. Uma oferta sozinha não vira barganha. */

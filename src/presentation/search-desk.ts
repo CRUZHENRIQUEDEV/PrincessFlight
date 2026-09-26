@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 import { AIRPORTS } from '../data/airports';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
@@ -6,6 +6,7 @@ import { refreshEveryMinutes, rescheduleRound, type SavedSearch } from '../domai
 import { buildSearchPlan } from '../domain/search-plan';
 import type { FlightOffer } from '../domain/types';
 import { delay, isAbortError } from '../infrastructure/delay';
+import { runAnywhereRound } from '../infrastructure/anywhere-runner';
 import { runFavoriteRound } from '../infrastructure/favorites-runner';
 import { runSearch, type RouteReport } from '../infrastructure/search-runner';
 import type { FlightPriceProvider } from '../infrastructure/travelpayouts-client';
@@ -90,7 +91,7 @@ async function start(
 }
 
 function refusalMessage(search: SavedSearch, token: string): string | null {
-  if (search.mode === 'favorites') {
+  if (search.mode === 'favorites' || search.mode === 'anywhere') {
     if (!token.trim()) return 'Cole o token da Travelpayouts. Ele fica salvo só neste navegador.';
     if (!search.criteria.originIata) return 'Escolha a origem.';
     return null;
@@ -105,6 +106,10 @@ function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor
   if (search.mode === 'favorites') {
     const total = search.favoriteDestinations.length;
     publishStart(deps, id, mode, total, `Busca iniciada · ${total} destinos favoritos · ${total} chamadas.`);
+    return;
+  }
+  if (search.mode === 'anywhere') {
+    publishStart(deps, id, mode, 1, 'Busca iniciada · qualquer destino · qualquer data · 1 chamada.');
     return;
   }
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
@@ -161,6 +166,7 @@ async function oneRound(
   closing: boolean,
 ): Promise<'continue' | 'stop'> {
   if (search.mode === 'favorites') return favoriteRound(deps, search, signal, stale, closing);
+  if (search.mode === 'anywhere') return anywhereRound(deps, search, signal, stale, closing);
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
   const error = validateSearch(search.criteria, plan, deps.readToken());
   if (error) return halt(deps, search.id, error, true, stale);
@@ -190,6 +196,40 @@ async function oneRound(
   if (result.status === 'stopped' || signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
   conclude(deps, search, result.offers, result.message, closing);
   return 'continue';
+}
+
+async function anywhereRound(
+  deps: SearchDeskDeps,
+  search: SavedSearch,
+  signal: AbortSignal,
+  stale: () => boolean,
+  closing: boolean,
+): Promise<'continue' | 'stop'> {
+  const line = 'Consultando o cache · qualquer destino · qualquer data';
+  deps.patch(search.id, { progress: { done: 0, total: 1 }, lastStatus: line });
+  if (deps.isActive(search.id)) deps.setStatus(line, false);
+  try {
+    const found = await runAnywhereRound({
+      origin: search.criteria.originIata,
+      token: deps.readToken(),
+      provider: deps.provider,
+      signal,
+      now: () => new Date().toISOString(),
+    });
+    if (stale()) return 'stop';
+    if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    const note = found.length === 0
+      ? '1 de 1 · qualquer destino · nenhum preço guardado; a API só devolve tarifas que alguém já buscou'
+      : `1 de 1 · qualquer destino · ${found.length} preços no cache`;
+    deps.note(note);
+    conclude(deps, search, found, null, closing);
+    return 'continue';
+  } catch (error) {
+    if (stale()) return 'stop';
+    if (isAbortError(error)) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    const message = error instanceof Error ? error.message : 'Falha na busca.';
+    return halt(deps, search.id, message, true, stale);
+  }
 }
 
 function favoriteRound(

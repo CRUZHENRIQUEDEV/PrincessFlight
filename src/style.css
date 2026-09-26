@@ -1,4 +1,4 @@
-/* Versão: 3.7 */
+/* Versão: 3.8 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -449,6 +449,7 @@ input, select {
 
 #national-filters[hidden],
 .favorites-panel[hidden],
+.anywhere-panel[hidden],
 .offer-drawer[hidden] { display: none !important; }
 .notes-field { display: grid; gap: 0.35rem; }
 .notes-field textarea {
