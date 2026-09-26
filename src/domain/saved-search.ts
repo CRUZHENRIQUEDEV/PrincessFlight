@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import type { AlertRules } from './alert-rules';
 import type { FlightOffer, SearchCriteria } from './types';
 
@@ -16,6 +16,7 @@ export interface SavedSearch {
   updatedAt: string;
   lastStatus: string;
   running: boolean;
+  keepAlive: boolean;
   progress: SearchProgress | null;
 }
 
@@ -34,6 +35,7 @@ export function createSavedSearch(
     updatedAt: now,
     lastStatus: 'Pronta para buscar.',
     running: false,
+    keepAlive: false,
     progress: null,
   };
 }
@@ -50,8 +52,14 @@ export function withSearch(searches: readonly SavedSearch[], next: SavedSearch):
 }
 
 export function withoutSearch(searches: readonly SavedSearch[], id: string): SavedSearch[] {
-  if (searches.length <= 1) return [...searches];
   return searches.filter((search) => search.id !== id);
+}
+
+/** 0 no formulário vira este intervalo, para o preço continuar sendo atualizado. */
+export const BACKGROUND_REFRESH_MINUTES = 15;
+
+export function refreshEveryMinutes(repeatEveryMinutes: number): number {
+  return repeatEveryMinutes >= 1 ? repeatEveryMinutes : BACKGROUND_REFRESH_MINUTES;
 }
 
 export function searchCounter(offerCount: number, progress: SearchProgress | null): string {

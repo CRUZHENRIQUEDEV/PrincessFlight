@@ -1,4 +1,4 @@
-// Versão: 1.2
+// Versão: 1.3
 import type { Airport, FlightOffer } from '../domain/types';
 import { airlineLabel, formatGap, formatPrice, formatStops, formatWhen } from './format';
 
@@ -12,7 +12,7 @@ export class ResultsView {
     storedCount: number,
     offers: readonly FlightOffer[],
     airports: readonly Airport[],
-    onSelect: (iata: string) => void,
+    onSelect: (offer: FlightOffer) => void,
     freshIds: ReadonlySet<string> = new Set(),
   ): void {
     this.body.replaceChildren();
@@ -23,18 +23,18 @@ export class ResultsView {
     }
   }
 
-  private card(offer: FlightOffer, airport: Airport | undefined, onSelect: (iata: string) => void, fresh: boolean): HTMLElement {
+  private card(offer: FlightOffer, airport: Airport | undefined, onSelect: (offer: FlightOffer) => void, fresh: boolean): HTMLElement {
     const card = document.createElement('article');
     const bargain = offer.isBargain ? ' offer--bargain' : '';
     const newest = fresh ? ' offer--fresh' : '';
     card.className = `offer${bargain}${newest}`;
     card.tabIndex = 0;
     card.append(heading(offer, airport), gapLine(offer), metaLine(offer), linkOrNote(offer.link));
-    card.addEventListener('click', () => onSelect(offer.destination));
+    card.addEventListener('click', () => onSelect(offer));
     card.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      onSelect(offer.destination);
+      onSelect(offer);
     });
     return card;
   }

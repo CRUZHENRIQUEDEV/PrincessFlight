@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import { searchCounter, type SavedSearch } from '../domain/saved-search';
 
 export class SearchListView {
@@ -28,15 +28,15 @@ export class SearchListView {
   private paint(): void {
     const running = this.lastSearches.filter((search) => search.running).length;
     this.count.textContent = countLabel(this.lastSearches.length, running);
-    const cards = this.lastSearches.map((search) => this.card(search, search.id === this.lastActiveId, this.lastSearches.length > 1));
+    const cards = this.lastSearches.map((search) => this.card(search, search.id === this.lastActiveId));
     this.list.replaceChildren(...cards);
   }
 
-  private card(search: SavedSearch, active: boolean, canRemove: boolean): HTMLElement {
+  private card(search: SavedSearch, active: boolean): HTMLElement {
     const article = document.createElement('article');
     article.className = cardClass(active, search.running);
     article.dataset.search = search.id;
-    article.append(this.title(search), meta(search), actions(search, canRemove));
+    article.append(this.title(search), meta(search), actions(search));
     return article;
   }
 
@@ -127,12 +127,12 @@ function meta(search: SavedSearch): HTMLParagraphElement {
   return line;
 }
 
-function actions(search: SavedSearch, canRemove: boolean): HTMLDivElement {
+function actions(search: SavedSearch): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'search-card__actions';
   row.append(smallButton('Renomear', 'button button--quiet', 'data-rename', search.id));
   if (search.running) row.append(smallButton('Parar', 'button button--stop', 'data-stop', search.id));
-  if (canRemove) row.append(smallButton('Excluir', 'button button--quiet', 'data-remove', search.id));
+  row.append(smallButton('Excluir', 'button button--quiet', 'data-remove', search.id));
   return row;
 }
 

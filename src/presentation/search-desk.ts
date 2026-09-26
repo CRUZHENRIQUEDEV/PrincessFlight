@@ -1,8 +1,8 @@
-// Versão: 1.1
+// Versão: 1.2
 import { AIRPORTS } from '../data/airports';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
-import type { SavedSearch } from '../domain/saved-search';
+import { refreshEveryMinutes, type SavedSearch } from '../domain/saved-search';
 import { buildSearchPlan } from '../domain/search-plan';
 import type { FlightOffer } from '../domain/types';
 import { delay, isAbortError } from '../infrastructure/delay';
@@ -14,6 +14,7 @@ export interface SearchUpdate {
   offers?: FlightOffer[];
   lastStatus?: string;
   running?: boolean;
+  keepAlive?: boolean;
   progress?: { done: number; total: number } | null;
 }
 
@@ -57,7 +58,7 @@ async function start(
 ): Promise<void> {
   const search = deps.getSearch(id);
   if (!search) return;
-  const refusal = refusalMessage(search, deps.readToken(), mode);
+  const refusal = refusalMessage(search, deps.readToken());
   if (refusal) {
     deps.patch(id, { lastStatus: refusal, running: false });
     if (deps.isActive(id)) deps.setStatus(refusal, true);
@@ -69,7 +70,7 @@ async function start(
   controllers.get(id)?.abort();
   const controller = new AbortController();
   controllers.set(id, controller);
-  announceStart(deps, id);
+  announceStart(deps, id, mode);
   try {
     await runRounds(deps, id, mode, controller.signal, stale);
   } catch (error) {
@@ -81,22 +82,23 @@ async function start(
   }
 }
 
-function refusalMessage(search: SavedSearch, token: string, mode: 'once' | 'monitor'): string | null {
+function refusalMessage(search: SavedSearch, token: string): string | null {
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
   const error = validateSearch(search.criteria, plan, token);
-  if (error) return error;
-  if (mode === 'monitor' && search.criteria.repeatEveryMinutes < 1) {
-    return 'Para deixar rodando, informe a repetição em minutos (1 ou mais).';
-  }
-  return null;
+  return error;
 }
 
-function announceStart(deps: SearchDeskDeps, id: string): void {
+function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor'): void {
   const search = deps.getSearch(id);
   if (!search) return;
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
   const started = `Busca iniciada · ${plan.destinations.length} destinos · ${plan.callCount} chamadas.`;
-  deps.patch(id, { running: true, progress: { done: 0, total: plan.callCount }, lastStatus: started });
+  deps.patch(id, {
+    running: true,
+    keepAlive: mode === 'monitor',
+    progress: { done: 0, total: plan.callCount },
+    lastStatus: started,
+  });
   if (!deps.isActive(id)) return;
   deps.setFresh([]);
   deps.setStatus(started, false);
@@ -122,7 +124,7 @@ async function runRounds(
     if (!search || stale()) return;
     const outcome = await oneRound(deps, search, signal, stale, mode === 'once');
     if (stale() || outcome === 'stop' || mode === 'once') return;
-    await delay(search.criteria.repeatEveryMinutes * 60_000, signal);
+    await delay(refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000, signal);
   } while (!signal.aborted);
 }
 
@@ -185,7 +187,7 @@ function conclude(
   closing: boolean,
 ): void {
   const failNote = message ? ` ${message}` : '';
-  const minutes = search.criteria.repeatEveryMinutes;
+  const minutes = refreshEveryMinutes(search.criteria.repeatEveryMinutes);
   const text = closing
     ? `Busca concluída · ${offers.length} ofertas.${failNote}`
     : `Rodada concluída · ${offers.length} ofertas.${failNote} Próxima em ${minutes} min.`;

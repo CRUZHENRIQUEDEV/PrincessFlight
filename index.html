@@ -1,4 +1,4 @@
-<!-- Versão: 2.7 -->
+<!-- Versão: 2.8 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -16,7 +16,7 @@
           <h2>Pesquisas</h2>
           <button id="new-search" class="button button--quiet" type="button">Nova</button>
         </div>
-        <p class="help">As que já estão buscando continuam em segundo plano.</p>
+        <p class="help">Cada pesquisa ligada atualiza os preços em segundo plano. Parar vale só para ela.</p>
         <p id="search-count" class="help"></p>
         <div id="search-list" class="search-list"></div>
       </aside>
@@ -129,7 +129,7 @@
                   <input id="delay-seconds" type="number" min="2" step="1" value="5" />
                 </label>
                 <label>
-                  Repetir a busca a cada (minutos, 0 = uma vez)
+                  Repetir em segundo plano a cada (minutos, 0 = 15)
                   <input id="repeat-minutes" type="number" min="0" step="1" value="0" />
                 </label>
               </div>
@@ -187,6 +187,16 @@
         </section>
       </div>
       </div>
+    </div>
+    <div id="offer-drawer" class="offer-drawer" hidden>
+      <button class="offer-drawer__backdrop" type="button" data-close aria-label="Fechar detalhes"></button>
+      <aside class="offer-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="offer-drawer-title">
+        <header class="offer-drawer__head">
+          <h2 id="offer-drawer-title">Oferta</h2>
+          <button class="button button--quiet" type="button" data-close>Fechar</button>
+        </header>
+        <div class="offer-drawer__body"></div>
+      </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

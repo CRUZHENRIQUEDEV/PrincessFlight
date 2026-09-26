@@ -1,7 +1,8 @@
-// Versão: 2.0
+// Versão: 2.1
 import { AIRPORTS } from '../data/airports';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
 import { createDefaultCriteria, parseCriteria } from '../domain/criteria';
+import { judgeOffer, departureMonth } from '../domain/offer-check';
 import { presentOffers } from '../domain/present-offers';
 import { markBargains } from '../domain/price-anomaly';
 import { createSavedSearch, nextSearchName, withSearch, withoutSearch, type SavedSearch } from '../domain/saved-search';
@@ -13,8 +14,9 @@ import { TravelpayoutsClient } from '../infrastructure/travelpayouts-client';
 import { createAlertSound } from './alert-sound';
 import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readSettings, readToken, syncScope } from './form-controller';
 import { bindDatePicker } from './date-picker';
-import { formatAlertMessage, formatPrice } from './format';
+import { formatAlertMessage, formatPrice, formatWhen } from './format';
 import { createPreferenceMemory } from './preference-memory';
+import { OfferDrawer, type OfferDrawerState } from './offer-drawer';
 import { MapView } from './map-view';
 import { PriceCharts } from './price-charts';
 import { ResultsView } from './results-view';
@@ -37,6 +39,9 @@ export async function startApp(doc: Document = document): Promise<void> {
   let activeId = '';
   let offers: FlightOffer[] = [];
   let freshIds = new Set<string>();
+  let openOfferId: string | null = null;
+  let drawerState: OfferDrawerState = { phase: 'idle', message: '' };
+  const provider = new TravelpayoutsClient();
   const heard = new Set(await opened.store.getHeardIds());
   const sound = createAlertSound();
   const feed = byId(doc, 'search-feed');
@@ -46,7 +51,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     byId(doc, 'search-list'),
     byId(doc, 'search-count'),
     (id) => selectSearch(id),
-    (id) => desk.stop(id),
+    (id) => stopSearch(id),
     (id) => { void removeSearch(id); },
     (id, name) => renameSearch(id, name),
   );
@@ -54,11 +59,12 @@ export async function startApp(doc: Document = document): Promise<void> {
   const render = () => {
     const parsed = parseCriteria(readCriteriaInput(doc));
     const visible = presentOffers(offers, parsed.criteria, AIRPORTS);
-    results.render(offers.length, visible, AIRPORTS, (iata) => map.focus(iata, AIRPORTS), freshIds);
+    results.render(offers.length, visible, AIRPORTS, (offer) => openOffer(offer), freshIds);
     charts.render(visible, AIRPORTS);
     map.update(visible, AIRPORTS, parsed.criteria.originIata);
     paintList();
     syncStop();
+    paintDrawer(visible);
   };
   const setStatus = (message: string, isError: boolean) => {
     const status = byId(doc, 'status');
@@ -66,7 +72,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     status.classList.toggle('status--error', isError);
   };
   const desk = createSearchDesk({
-    provider: new TravelpayoutsClient(),
+    provider,
     readToken: () => readToken(doc),
     getSearch: (id) => searches.find((search) => search.id === id),
     patch: (id, update) => applyUpdate(id, update),
@@ -98,7 +104,7 @@ export async function startApp(doc: Document = document): Promise<void> {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     remember();
-    void desk.run(activeId, 'once');
+    void desk.run(activeId, 'monitor');
   });
   form.addEventListener('input', () => refreshFromControls());
   doc.getElementById('offers-tools')?.addEventListener('change', () => refreshFromControls());
@@ -112,7 +118,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     remember();
     void desk.run(activeId, 'monitor');
   });
-  byId(doc, 'stop-button').addEventListener('click', () => desk.stop(activeId));
+  byId(doc, 'stop-button').addEventListener('click', () => stopSearch(activeId));
   byId(doc, 'save-button').addEventListener('click', () => { void saveProfile(); });
   byId(doc, 'clear-button').addEventListener('click', () => clearOffers());
   byId(doc, 'new-search').addEventListener('click', () => { void createSearch(); });
@@ -151,7 +157,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     searches = withSearch(searches, next);
     if (id === activeId) offers = next.offers;
     render();
-    if ('offers' in update || update.running === false) void persist(id);
+    if ('offers' in update || update.running === false || 'keepAlive' in update) void persist(id);
   }
 
   function syncActiveFromForm(): void {
@@ -222,24 +228,28 @@ export async function startApp(doc: Document = document): Promise<void> {
   }
 
   async function removeSearch(id: string): Promise<void> {
-    if (searches.length <= 1) {
-      setStatus('Mantenha ao menos uma pesquisa.', true);
-      return;
-    }
     desk.stop(id);
-    searches = withoutSearch(searches, id);
+    const remaining = withoutSearch(searches, id);
     await opened.store.deleteSearch(id);
-    if (activeId === id) {
-      activeId = searches[0].id;
-      const next = activeSearch();
-      fillForm(doc, readToken(doc), next.criteria, next.alertRules);
-      offers = next.offers;
-      freshIds = new Set();
-      setStatus(next.lastStatus, false);
+    if (remaining.length === 0) {
+      const created = createSavedSearch('Pesquisa 1', createDefaultCriteria(), createDefaultAlertRules(), new Date().toISOString());
+      searches = [created];
+      activeId = created.id;
+      await persist(created.id);
+    } else {
+      searches = remaining;
+      if (activeId === id) activeId = searches[0].id;
     }
+    const next = activeSearch();
+    fillForm(doc, readToken(doc), next.criteria, next.alertRules);
+    offers = next.offers;
+    freshIds = new Set();
+    closeOffer();
     render();
+    updateEstimate(doc);
     const settings = currentSettings();
     if (settings) await opened.store.saveSettings(settings);
+    setStatus(next.lastStatus, false);
   }
 
   function clearOffers(): void {
@@ -280,11 +290,115 @@ export async function startApp(doc: Document = document): Promise<void> {
   function syncStop(): void {
     setDisabled(doc, 'stop-button', !desk.isRunning(activeId));
   }
+
+  const drawer = new OfferDrawer(
+    byId(doc, 'offer-drawer'),
+    () => closeOffer(),
+    () => { void refreshOpenOffer(); },
+    (iata) => map.focus(iata, AIRPORTS),
+  );
+
+  function stopSearch(id: string): void {
+    const current = searches.find((search) => search.id === id);
+    if (current?.keepAlive) {
+      searches = withSearch(searches, { ...current, keepAlive: false });
+      void persist(id);
+    }
+    desk.stop(id);
+  }
+
+  function openOffer(offer: FlightOffer): void {
+    openOfferId = offer.id;
+    drawerState = { phase: 'idle', message: `Última consulta em ${formatWhen(offer.fetchedAt)}.` };
+    map.focus(offer.destination, AIRPORTS);
+    paintDrawer(presentOffers(offers, parseCriteria(readCriteriaInput(doc)).criteria, AIRPORTS));
+  }
+
+  function closeOffer(): void {
+    openOfferId = null;
+    drawer.hide();
+  }
+
+  function paintDrawer(visible: readonly FlightOffer[]): void {
+    if (!openOfferId) return;
+    const offer = visible.find((item) => item.id === openOfferId) ?? offers.find((item) => item.id === openOfferId);
+    if (!offer) {
+      closeOffer();
+      return;
+    }
+    drawer.show(offer, AIRPORTS, drawerState);
+  }
+
+  async function refreshOpenOffer(): Promise<void> {
+    const current = offers.find((item) => item.id === openOfferId);
+    if (!current || drawerState.phase === 'checking') return;
+    const month = departureMonth(current.departureAt);
+    if (!month) {
+      drawerState = { phase: 'error', message: 'Esta oferta não tem data de ida para consultar.' };
+      paintDrawer([]);
+      return;
+    }
+    drawerState = { phase: 'checking', message: 'Consultando a Travelpayouts…' };
+    paintDrawer([]);
+    const controller = new AbortController();
+    try {
+      const query = {
+        token: readToken(doc),
+        origin: current.origin,
+        destination: current.destination,
+        month,
+        signal: controller.signal,
+        includeRegularPrices: true,
+      };
+      let tickets = await provider.searchRouteMonth(query);
+      if (tickets.length === 0) tickets = await provider.searchCalendarMonth(query);
+      applyVerdict(current.id, judgeOffer(current, tickets, new Date().toISOString()));
+    } catch (error) {
+      drawerState = { phase: 'error', message: error instanceof Error ? error.message : 'Falha ao atualizar este voo.' };
+      paintDrawer([]);
+    }
+  }
+
+  function applyVerdict(previousId: string, verdict: ReturnType<typeof judgeOffer>): void {
+    if (verdict.status === 'missing' || !verdict.offer) {
+      drawerState = { phase: 'missing', message: 'Este voo não apareceu no cache atual. O preço guardado pode ter saído.' };
+      paintDrawer([]);
+      return;
+    }
+    const current = activeSearch();
+    const nextOffers = verdict.status === 'same'
+      ? current.offers.map((item) => (item.id === previousId ? verdict.offer ?? item : item))
+      : current.offers.filter((item) => item.id !== previousId).concat(verdict.offer);
+    searches = withSearch(searches, { ...current, offers: nextOffers, updatedAt: new Date().toISOString() });
+    if (current.id === activeId) offers = nextOffers;
+    openOfferId = verdict.offer.id;
+    drawerState = verdict.status === 'same'
+      ? { phase: 'same', message: 'Ainda válida. O preço continua o mesmo.' }
+      : { phase: 'changed', message: `O preço mudou para ${formatPrice(verdict.offer.price, verdict.offer.currency)}.` };
+    render();
+    void persist(current.id);
+  }
+
+  resumeBackground();
+
+  function resumeBackground(): void {
+    if (!readToken(doc)) return;
+    for (const search of searches) {
+      if (search.keepAlive) void desk.run(search.id, 'monitor');
+    }
+  }
 }
 
 async function loadSearches(store: FlightStore, saved: StoredSettings | null): Promise<SavedSearch[]> {
   const stored = await store.getSearches();
-  if (stored.length > 0) return stored.map((search) => ({ ...search, running: false, progress: null }));
+  if (stored.length > 0) {
+    return stored.map((search) => ({
+      ...search,
+      running: false,
+      progress: null,
+      keepAlive: search.keepAlive !== false,
+    }));
+  }
   const created = createSavedSearch(
     'Pesquisa 1',
     saved?.criteria ?? createDefaultCriteria(),
