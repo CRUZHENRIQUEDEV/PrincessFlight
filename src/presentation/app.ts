@@ -1,4 +1,4 @@
-// Versão: 3.1
+// Versão: 3.2
 import { AIRPORTS } from '../data/airports';
 import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
@@ -510,6 +510,15 @@ export async function startApp(doc: Document = document): Promise<void> {
   async function refreshOpenOffer(): Promise<void> {
     const current = catalog.find((item) => item.id === openOfferId) ?? offers.find((item) => item.id === openOfferId);
     if (!current || drawerState.phase === 'checking') return;
+    if (current.selfConnect) {
+      const hub = placeOf(current.selfConnect.hub)?.city ?? current.selfConnect.hub;
+      drawerState = {
+        phase: 'idle',
+        message: `São duas passagens, com escala em ${hub}. Rode a busca de favoritos de novo para atualizar o preço.`,
+      };
+      paintDrawer([]);
+      return;
+    }
     const month = departureMonth(current.departureAt);
     if (!month) {
       drawerState = { phase: 'error', message: 'Esta oferta não tem data de ida para consultar.' };

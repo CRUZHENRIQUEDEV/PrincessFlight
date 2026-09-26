@@ -1,4 +1,4 @@
-/* Versão: 4.0 */
+/* Versão: 4.1 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -417,6 +417,8 @@ input, select {
 .offer__gap--below { color: var(--bargain); }
 .offer__gap--above, .offer__gap--lone, .offer__gap--even { color: var(--muted); font-weight: 500; }
 .offer__meta { margin: 0; color: var(--muted); font-size: 0.84rem; }
+.offer__warn, .offer-sheet__warn { margin: 0; color: var(--accent); font-size: 0.84rem; }
+.offer__links { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; }
 .offer a { color: var(--ink); font-size: 0.84rem; }
 .offer-group { display: grid; gap: 0.4rem; }
 .offer-group__toggle {
@@ -519,6 +521,8 @@ input, select {
 .offer-drawer__head h2 { font-size: 2rem; }
 .offer-sheet { display: grid; gap: 1rem; margin-top: 0.8rem; }
 .offer-sheet__route { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.6rem; align-items: center; }
+.offer-sheet__route--via { display: flex; flex-wrap: wrap; align-items: center; }
+.offer-sheet__route--via > div { flex: 1 1 6rem; }
 .offer-sheet__city { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 1.45rem; }
 .offer-sheet__code { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.78rem; }
 .offer-sheet__arrow { color: var(--muted); font-size: 1.3rem; }

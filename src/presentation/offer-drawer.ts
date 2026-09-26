@@ -1,4 +1,4 @@
-// Versão: 1.7
+// Versão: 1.8
 import {
   CategoryScale,
   Chart,
@@ -12,6 +12,7 @@ import { placeOf } from '../data/places';
 import { airlineBookingLink } from '../domain/airline-link';
 import type { DestinationHistory } from '../domain/destination-history';
 import { priceFoundAt } from '../domain/offer';
+import { selfConnectWarning } from '../domain/self-connect';
 import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
 import type { Airport, FlightOffer } from '../domain/types';
@@ -102,11 +103,16 @@ function sheet(
 ): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'offer-sheet';
-  wrap.append(
+  const blocks = [
     routeBlock(offer, airports),
     priceBlock(offer),
     historyBlock(history),
     facts(offer, airports),
+  ];
+  const warning = connectWarning(offer);
+  if (warning) blocks.splice(2, 0, warning);
+  wrap.append(
+    ...blocks,
     climateBlock(notes.climate),
     placesBlock(notes, airports.find((item) => item.iata === offer.destination), offer.destination),
     notice(state),
@@ -115,10 +121,29 @@ function sheet(
   return wrap;
 }
 
+function connectWarning(offer: FlightOffer): HTMLElement | null {
+  if (!offer.selfConnect) return null;
+  const line = document.createElement('p');
+  line.className = 'offer-sheet__warn';
+  const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+  line.textContent = selfConnectWarning(hub);
+  return line;
+}
+
 function routeBlock(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {
   const block = document.createElement('div');
-  block.className = 'offer-sheet__route';
-  block.append(place(offer.origin, airports), arrow(), place(offer.destination, airports));
+  block.className = offer.selfConnect ? 'offer-sheet__route offer-sheet__route--via' : 'offer-sheet__route';
+  if (!offer.selfConnect) {
+    block.append(place(offer.origin, airports), arrow(), place(offer.destination, airports));
+    return block;
+  }
+  block.append(
+    place(offer.origin, airports),
+    arrow(),
+    place(offer.selfConnect.hub, airports),
+    arrow(),
+    place(offer.destination, airports),
+  );
   return block;
 }
 
@@ -172,9 +197,18 @@ function facts(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {
     fact('Tempo de ida', outboundTime(offer, airports)),
   ];
   if (offer.returnAt) rows.push(fact('Tempo de volta', returnTime(offer, airports)));
+  if (offer.selfConnect) {
+    rows.push(
+      fact('Até a escala', legSummary(offer.selfConnect.home)),
+      fact('Depois da escala', legSummary(offer.selfConnect.away)),
+    );
+  } else {
+    rows.push(
+      fact('Companhia', airlineLabel(offer.airline)),
+      fact('Voo', offer.flightNumber || 'não informado'),
+    );
+  }
   rows.push(
-    fact('Companhia', airlineLabel(offer.airline)),
-    fact('Voo', offer.flightNumber || 'não informado'),
     fact('Paradas', formatStops(offer.transfers, offer.returnTransfers)),
     fact('Aeroportos', `${offer.originAirport} → ${offer.destinationAirport}`),
   );
@@ -185,6 +219,11 @@ function facts(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {
   );
   list.append(...rows);
   return list;
+}
+
+function legSummary(leg: { price: number; currency: string; airline: string; departureAt: string; returnAt: string }): string {
+  const back = formatWhen(leg.returnAt);
+  return `${formatPrice(leg.price, leg.currency)} · ${airlineLabel(leg.airline)} · ${formatWhen(leg.departureAt)} → ${back}`;
 }
 
 function outboundTime(offer: FlightOffer, airports: readonly Airport[]): string {
@@ -282,10 +321,19 @@ function actions(
   refresh.textContent = state.phase === 'checking' ? 'Atualizando…' : 'Atualizar este voo';
   refresh.disabled = state.phase === 'checking';
   refresh.addEventListener('click', onRefresh);
-  row.append(refresh, favoriteButton(favorite));
-  const agency = externalLink(offer.link, 'Abrir na agência');
+  if (!offer.selfConnect) row.append(refresh);
+  row.append(favoriteButton(favorite));
+  if (offer.selfConnect) {
+    const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+    const away = placeOf(offer.destination)?.city ?? offer.destination;
+    const homeLink = externalLink(offer.selfConnect.home.link, `Passagem até ${hub}`);
+    const awayLink = externalLink(offer.selfConnect.away.link, `Passagem até ${away}`);
+    if (homeLink) row.append(homeLink);
+    if (awayLink) row.append(awayLink);
+  }
+  const agency = offer.selfConnect ? null : externalLink(offer.link, 'Abrir na agência');
   if (agency) row.append(agency);
-  const booking = airlineBookingLink(offer);
+  const booking = offer.selfConnect ? null : airlineBookingLink(offer);
   const airline = booking ? externalLink(booking.href, booking.label) : null;
   if (airline) row.append(airline);
   const map = document.createElement('button');

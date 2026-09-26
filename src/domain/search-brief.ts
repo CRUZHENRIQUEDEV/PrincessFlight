@@ -1,4 +1,4 @@
-// Versão: 1.4
+// Versão: 1.5
 import { placeOf } from '../data/places';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
@@ -46,7 +46,7 @@ export function buildSearchBrief(
   if (favorites) {
     lines.splice(5, 0, {
       label: 'Como busca',
-      value: 'Menor ida e volta já guardada no cache, sem escolher data. Rota que ninguém buscou volta vazia.',
+      value: 'Primeiro o que já está salvo neste navegador. Se a rota inteira não existir, tenta duas passagens com escala. Continua sendo duas compras.',
     });
   } else if (anywhere) {
     lines.splice(5, 0, {

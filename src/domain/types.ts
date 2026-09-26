@@ -1,4 +1,4 @@
-// Versão: 1.7
+// Versão: 1.8
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
@@ -80,6 +80,34 @@ export interface FlightOffer {
   isBargain: boolean;
   referencePrice: number | null;
   gapRatio: number | null;
+  selfConnect?: SelfConnect;
+}
+
+/** Uma das duas passagens compradas à parte, emendadas numa escala. */
+export interface ConnectLeg {
+  origin: string;
+  destination: string;
+  originAirport: string;
+  destinationAirport: string;
+  price: number;
+  currency: string;
+  airline: string;
+  flightNumber: string;
+  departureAt: string;
+  returnAt: string;
+  transfers: number;
+  returnTransfers: number;
+  durationToMinutes: number | null;
+  durationBackMinutes: number | null;
+  link: string;
+  foundAt: string | null;
+}
+
+/** Ida e volta montadas com duas compras. A escala não é uma passagem só. */
+export interface SelfConnect {
+  hub: string;
+  home: ConnectLeg;
+  away: ConnectLeg;
 }
 
 export interface HolidayWindow {

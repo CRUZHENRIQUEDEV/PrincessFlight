@@ -1,6 +1,7 @@
-// Versão: 1.6
+// Versão: 1.7
 import { placeOf } from '../data/places';
 import { priceFoundAt } from '../domain/offer';
+import { selfConnectWarning } from '../domain/self-connect';
 import { groupOffersByDestination } from '../domain/present-offers';
 import type { Airport, FlightOffer } from '../domain/types';
 import { airlineLabel, formatFoundAt, formatGap, formatPrice, formatStops, formatWhen } from './format';
@@ -92,9 +93,11 @@ export class ResultsView {
     card.className = `offer${bargain}${newest}`;
     card.tabIndex = 0;
     const nodes: HTMLElement[] = [heading(offer, airport), gapLine(offer), metaLine(offer)];
+    const warning = connectLine(offer);
+    if (warning) nodes.push(warning);
     const found = foundLine(offer);
     if (found) nodes.push(found);
-    nodes.push(linkOrNote(offer.link));
+    nodes.push(links(offer));
     card.append(...nodes);
     card.addEventListener('click', () => onSelect(offer));
     card.addEventListener('keydown', (event) => {
@@ -153,12 +156,22 @@ function gapClass(gapRatio: number | null): string {
   return 'offer__gap--even';
 }
 
+function connectLine(offer: FlightOffer): HTMLElement | null {
+  if (!offer.selfConnect) return null;
+  const line = document.createElement('p');
+  line.className = 'offer__warn';
+  const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+  line.textContent = selfConnectWarning(hub);
+  return line;
+}
+
 function foundLine(offer: FlightOffer): HTMLElement | null {
   const foundAt = priceFoundAt(offer);
   if (!foundAt) return null;
   const line = document.createElement('p');
   line.className = 'offer__meta';
-  line.textContent = `Preço achado em ${formatFoundAt(foundAt)}`;
+  const label = offer.selfConnect ? 'Preços achados em' : 'Preço achado em';
+  line.textContent = `${label} ${formatFoundAt(foundAt)}`;
   return line;
 }
 
@@ -166,11 +179,31 @@ function metaLine(offer: FlightOffer): HTMLElement {
   const line = document.createElement('p');
   line.className = 'offer__meta';
   const back = offer.returnAt ? formatWhen(offer.returnAt) : 'sem volta';
-  line.textContent = `${formatWhen(offer.departureAt)} → ${back} · ${airlineLabel(offer.airline)} · ${formatStops(offer.transfers, offer.returnTransfers)}`;
+  const hub = offer.selfConnect ? placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub : '';
+  const how = offer.selfConnect
+    ? `duas passagens · escala em ${hub}`
+    : `${airlineLabel(offer.airline)} · ${formatStops(offer.transfers, offer.returnTransfers)}`;
+  line.textContent = `${formatWhen(offer.departureAt)} → ${back} · ${how}`;
   return line;
 }
 
-function linkOrNote(href: string): HTMLElement {
+function links(offer: FlightOffer): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'offer__links';
+  if (!offer.selfConnect) {
+    row.append(linkOrNote(offer.link, 'Ver oferta'));
+    return row;
+  }
+  const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+  const away = placeOf(offer.destination)?.city ?? offer.destination;
+  row.append(
+    linkOrNote(offer.selfConnect.home.link, `Passagem até ${hub}`),
+    linkOrNote(offer.selfConnect.away.link, `Passagem até ${away}`),
+  );
+  return row;
+}
+
+function linkOrNote(href: string, label: string): HTMLElement {
   if (!href.startsWith('https://')) {
     const note = document.createElement('span');
     note.textContent = 'sem link';
@@ -180,7 +213,7 @@ function linkOrNote(href: string): HTMLElement {
   link.href = href;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
-  link.textContent = 'Ver oferta';
+  link.textContent = label;
   link.addEventListener('click', (event) => event.stopPropagation());
   return link;
 }

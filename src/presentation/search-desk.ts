@@ -1,5 +1,6 @@
-// Versão: 1.7
+// Versão: 1.8
 import { AIRPORTS } from '../data/airports';
+import { placeOf } from '../data/places';
 import { freshRouteOffers } from '../domain/known-offers';
 import { mergeOffers } from '../domain/offer-archive';
 import { validateSearch } from '../domain/criteria';
@@ -120,6 +121,17 @@ function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
   const saved = countFreshPairs(search, known, now, plan.destinations.map((airport) => airport.iata), plan.months);
   publishStart(deps, id, mode, plan.callCount, startLine(plan.destinations.length, plan.callCount, saved, 'destinos'));
+}
+
+function favoriteFound(ticketCount: number, reused: boolean, via: string | null): string {
+  if (ticketCount === 0) return 'nenhum preço guardado; a API só devolve tarifas que alguém já buscou';
+  if (via) return `duas passagens separadas, escala em ${placeName(via)}`;
+  if (reused) return 'preço já salvo neste navegador';
+  return 'menor preço encontrado';
+}
+
+function placeName(code: string): string {
+  return AIRPORTS.find((item) => item.iata === code)?.city ?? placeOf(code)?.city ?? code;
 }
 
 function startLine(destinations: number, calls: number, saved: number, label: string): string {
@@ -286,19 +298,16 @@ function favoriteRound(
     now: () => new Date().toISOString(),
     knownOffers: () => deps.knownOffers?.() ?? [],
     freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
-    onProgress: (done, total, destination) => {
+    onProgress: (done, total, destination, hub) => {
       if (stale()) return;
-      showConsulting(deps, search.id, done, total, destination, 'qualquer data');
+      const month = hub ? `qualquer data · escala em ${placeName(hub)}` : 'qualquer data';
+      showConsulting(deps, search.id, done, total, destination, month);
     },
     onRoute: (progress) => {
       if (stale()) return;
       const airport = AIRPORTS.find((item) => item.iata === progress.destination);
       const city = airport?.city ?? progress.destination;
-      const found = progress.ticketCount === 0
-        ? 'nenhum preço guardado; a API só devolve tarifas que alguém já buscou'
-        : progress.reused
-          ? 'preço já salvo neste navegador'
-          : 'menor preço encontrado';
+      const found = favoriteFound(progress.ticketCount, progress.reused, progress.via);
       const line = `${progress.completedCalls} de ${progress.totalCalls} · ${city} · qualquer data · ${found}`;
       deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
       if (!deps.isActive(search.id)) return;
