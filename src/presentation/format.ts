@@ -1,4 +1,4 @@
-// Versão: 1.3
+// Versão: 1.4
 
 const AIRLINE_NAMES: Record<string, string> = {
   G3: 'Gol',
@@ -35,8 +35,12 @@ export function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
   }).format(date);
 }
@@ -46,7 +50,13 @@ export function formatFoundAt(iso: string): string {
   const date = new Date(hasTime ? iso : `${iso}T12:00:00-03:00`);
   if (Number.isNaN(date.getTime())) return iso;
   if (!hasTime) {
-    return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(date);
+    return new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'America/Sao_Paulo',
+    }).format(date);
   }
   return formatWhen(iso);
 }
