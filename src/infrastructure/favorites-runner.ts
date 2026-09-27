@@ -1,4 +1,4 @@
-// Versão: 1.4
+// Versão: 1.5
 import { connectionHubs, cityCode } from '../domain/connection-hubs';
 import { freshRouteOffers } from '../domain/known-offers';
 import { toFlightOffer } from '../domain/offer';
@@ -83,18 +83,31 @@ async function assembleFromHubs(
   index: number,
   legCache: Map<string, FlightOffer[]>,
 ): Promise<FlightOffer | null> {
-  const pairs: HubPair[] = [];
   for (const hub of connectionHubs(options.origin, destination)) {
     if (options.signal.aborted) throw new DOMException('A busca foi interrompida.', 'AbortError');
-    const homes = await legsFor(options, options.origin, hub, index, destination, hub, legCache);
-    if (homes.length === 0) continue;
-    const aways = await legsFor(options, hub, destination, index, destination, hub, legCache);
-    for (const home of homes) {
-      for (const away of aways) {
-        const homeLeg = legFromOffer(home);
-        const awayLeg = legFromOffer(away);
-        if (homeLeg && awayLeg) pairs.push({ hub, home: homeLeg, away: awayLeg });
-      }
+    const built = await pairThroughHub(options, destination, index, hub, legCache);
+    if (built) return built;
+  }
+  return null;
+}
+
+/** O voo longo sai primeiro. Sem ele, o trecho até a escala não é consultado. */
+async function pairThroughHub(
+  options: FavoriteRoundOptions,
+  destination: string,
+  index: number,
+  hub: string,
+  legCache: Map<string, FlightOffer[]>,
+): Promise<FlightOffer | null> {
+  const aways = await legsFor(options, hub, destination, index, destination, hub, legCache);
+  if (aways.length === 0) return null;
+  const homes = await legsFor(options, options.origin, hub, index, destination, hub, legCache);
+  const pairs: HubPair[] = [];
+  for (const home of homes) {
+    for (const away of aways) {
+      const homeLeg = legFromOffer(home);
+      const awayLeg = legFromOffer(away);
+      if (homeLeg && awayLeg) pairs.push({ hub, home: homeLeg, away: awayLeg });
     }
   }
   return assembleSelfConnect(options.origin, destination, pairs, options.now());

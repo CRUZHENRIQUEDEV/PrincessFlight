@@ -1,4 +1,4 @@
-// Versão: 1.6
+// Versão: 1.7
 import { placeOf } from '../data/places';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
@@ -46,7 +46,7 @@ export function buildSearchBrief(
   if (favorites) {
     lines.splice(5, 0, {
       label: 'Como busca',
-      value: 'Primeiro o que já está salvo neste navegador. Se a rota inteira não existir, tenta duas passagens com escala. Continua sendo duas compras.',
+      value: 'Primeiro o que já está salvo neste navegador. Se a rota inteira não existir, tenta o voo saindo de São Paulo. Se achar, junta com o trecho até São Paulo. Continua sendo duas compras.',
     });
   } else if (anywhere) {
     lines.splice(5, 0, {

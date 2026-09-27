@@ -1,6 +1,9 @@
-// Versão: 1.0
+// Versão: 1.1
 
-/** Hubs grandes. Cada um pode gastar uma chamada, então a lista não é o mundo inteiro. */
+/**
+ * Hubs grandes. Cada um pode gastar uma chamada, então a lista não é o mundo inteiro.
+ * São Paulo vem primeiro: saindo do Brasil, o voo internacional costuma existir em Guarulhos.
+ */
 export const CONNECTION_HUBS = [
   'SAO',
   'LIS',
