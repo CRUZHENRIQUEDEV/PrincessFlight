@@ -1,8 +1,8 @@
-// Versão: 3.3
+// Versão: 3.4
 import { AIRPORTS } from '../data/airports';
 import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
-import { createDefaultCriteria, parseCriteria, rollDatesToTomorrow, type ParsedCriteria } from '../domain/criteria';
+import { createDefaultCriteria, parseCriteria, rollDatesToTomorrow, searchOrigins, type ParsedCriteria } from '../domain/criteria';
 import { buildDestinationHistory } from '../domain/destination-history';
 import { calendarDay, todayIso } from '../domain/iso-date';
 import { presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../domain/present-offers';
@@ -18,7 +18,7 @@ import {
   withoutSearch,
   type SavedSearch,
 } from '../domain/saved-search';
-import { buildSearchPlan } from '../domain/search-plan';
+import { countOriginCalls } from '../domain/search-plan';
 import { collectCatalog, mergeOffers } from '../domain/offer-archive';
 import type { FlightOffer, SearchCriteria } from '../domain/types';
 import { MemoryFlightStore, type FlightStore, type StoredSettings } from '../infrastructure/flight-store';
@@ -27,7 +27,7 @@ import { judgeOffer, departureMonth } from '../domain/offer-check';
 import { loadDestinationNotes, type DestinationNotes } from '../infrastructure/destination-notes';
 import { TravelpayoutsClient } from '../infrastructure/travelpayouts-client';
 import { createAlertSound } from './alert-sound';
-import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readSettings, readToken, syncScope, writeDateRange } from './form-controller';
+import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readOriginCodes, readSettings, readToken, syncScope, writeDateRange, writeOrigins } from './form-controller';
 import { bindDatePicker } from './date-picker';
 import { formatAlertMessage, formatPrice, formatWhen } from './format';
 import { createPreferenceMemory } from './preference-memory';
@@ -81,7 +81,8 @@ export async function startApp(doc: Document = document): Promise<void> {
     const storedCount = current?.mode === 'favorites' ? catalog.length : offers.length;
     results.render(storedCount, visible, AIRPORTS, (offer) => openOffer(offer), freshIds);
     charts.render(visible, AIRPORTS);
-    map.update(visible, AIRPORTS, current?.criteria.originIata ?? parseCriteria(readCriteriaInput(doc)).criteria.originIata);
+    const criteria = current?.criteria ?? parseCriteria(readCriteriaInput(doc)).criteria;
+    map.update(visible, AIRPORTS, searchOrigins(criteria));
     paintList();
     paintFavorites(current);
     paintNotes(current);
@@ -158,6 +159,30 @@ export async function startApp(doc: Document = document): Promise<void> {
   byId(doc, 'new-search').addEventListener('click', () => { void createSearch(); });
   fillPlaceList(doc);
   const favoriteInput = doc.getElementById('favorite-destination');
+  const originSelect = doc.getElementById('origin');
+  originSelect?.addEventListener('change', () => {
+    if (!(originSelect instanceof HTMLSelectElement)) return;
+    const selected = originSelect.value.trim().toUpperCase();
+    const currentCodes = readOriginCodes(doc);
+    if (!/^[A-Z]{3}$/.test(selected) || currentCodes.includes(selected)) return;
+    writeOrigins(doc, [...currentCodes, selected]);
+    const city = placeOf(selected)?.city ?? selected;
+    setStatus(`${city} entrou nesta pesquisa. Remova o chip para tirar.`, false);
+    refreshFromControls();
+  });
+  doc.getElementById('origin-chips')?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button[data-iata]');
+    if (!(button instanceof HTMLButtonElement)) return;
+    const code = button.dataset.iata ?? '';
+    const next = readOriginCodes(doc).filter((item) => item !== code);
+    if (next.length === 0) return;
+    writeOrigins(doc, next);
+    const city = placeOf(code)?.city ?? code;
+    setStatus(`${city} saiu desta pesquisa.`, false);
+    refreshFromControls();
+  });
   doc.getElementById('favorite-add')?.addEventListener('click', () => {
     if (favoriteInput instanceof HTMLInputElement) addTypedFavorite(favoriteInput);
   });
@@ -185,7 +210,7 @@ export async function startApp(doc: Document = document): Promise<void> {
       if (search.mode !== 'favorites') continue;
       counts.set(search.id, presentFavoriteOffers(
         catalog,
-        search.criteria.originIata,
+        searchOrigins(search.criteria),
         search.favoriteDestinations,
       ).length);
     }
@@ -198,7 +223,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     if (current?.mode === 'favorites') {
       return presentFavoriteOffers(
         catalog,
-        current.criteria.originIata,
+        searchOrigins(current.criteria),
         current.favoriteDestinations,
         parsed.criteria.offerSort,
         current.criteria.bargainRatio,
@@ -207,7 +232,7 @@ export async function startApp(doc: Document = document): Promise<void> {
     if (current?.mode === 'anywhere') {
       return presentAnywhereOffers(
         current.offers,
-        current.criteria.originIata,
+        searchOrigins(current.criteria),
         parsed.criteria.offerSort,
         current.criteria.bargainRatio,
         parsed.criteria.scope,
@@ -654,7 +679,7 @@ export async function startApp(doc: Document = document): Promise<void> {
       setStatus('Escolha o aeroporto na lista ou digite o código de 3 letras, como OPO.', true);
       return;
     }
-    if (code === current.criteria.originIata.toUpperCase()) {
+    if (searchOrigins(current.criteria).includes(code)) {
       setStatus('A origem não entra como destino favorito.', true);
       return;
     }
@@ -694,8 +719,11 @@ export async function startApp(doc: Document = document): Promise<void> {
 }
 
 function favoriteCriteriaFromForm(parsed: ParsedCriteria): SavedSearch['criteria'] {
+  const origins = searchOrigins(parsed.criteria);
   return {
-    ...favoritesCriteria(parsed.criteria.originIata),
+    ...favoritesCriteria(origins[0] ?? parsed.criteria.originIata),
+    originIata: origins[0] ?? parsed.criteria.originIata,
+    originIatas: origins,
     scope: parsed.criteria.scope,
     delayBetweenCallsSeconds: parsed.criteria.delayBetweenCallsSeconds,
     repeatEveryMinutes: parsed.criteria.repeatEveryMinutes,
@@ -836,27 +864,33 @@ function updateEstimate(doc: Document): void {
   }
   const favorites = doc.getElementById('favorites-panel');
   const anywhere = doc.getElementById('anywhere-panel');
+  const origins = searchOrigins(parsed.criteria);
   if (anywhere && !anywhere.hidden) {
-    estimate.textContent = '1 chamada · qualquer destino com preço no cache · qualquer data.';
+    const calls = Math.max(1, origins.length);
+    estimate.textContent = calls === 1
+      ? '1 chamada · qualquer destino com preço no cache · qualquer data.'
+      : `${calls} chamadas · uma por origem · qualquer destino e qualquer data.`;
     return;
   }
   if (favorites && !favorites.hidden) {
     const count = doc.getElementById('favorite-chips')?.childElementCount ?? 0;
+    const routes = count * origins.length;
     estimate.textContent = count === 0
       ? 'Nenhum destino favorito ainda.'
-      : `${count} destinos favoritos · ${count} chamadas · qualquer data.`;
+      : `${origins.length} ${origins.length === 1 ? 'origem' : 'origens'} · ${count} destinos favoritos · ${routes} chamadas · qualquer data.`;
     return;
   }
-  const plan = buildSearchPlan(parsed.criteria, AIRPORTS);
-  if (plan.callCount === 0) {
+  const counted = countOriginCalls(parsed.criteria, AIRPORTS);
+  if (counted.calls === 0) {
     estimate.textContent = 'Nenhum destino com esses filtros.';
     return;
   }
-  const seconds = plan.callCount * parsed.criteria.delayBetweenCallsSeconds;
+  const seconds = counted.calls * parsed.criteria.delayBetweenCallsSeconds;
   const minutes = Math.max(1, Math.ceil(seconds / 60));
-  const months = plan.months.length === 1 ? 'mês' : 'meses';
-  const warning = plan.callCount > 60 ? ' Volume alto para a cota da API.' : '';
-  estimate.textContent = `${plan.destinations.length} destinos · ${plan.months.length} ${months} · ${plan.callCount} chamadas · cerca de ${minutes} min.${warning}`;
+  const months = counted.months === 1 ? 'mês' : 'meses';
+  const warning = counted.calls > 60 ? ' Volume alto para a cota da API.' : '';
+  const from = counted.origins > 1 ? `${counted.origins} origens · ` : '';
+  estimate.textContent = `${from}${counted.destinations} destinos · ${counted.months} ${months} · ${counted.calls} chamadas · cerca de ${minutes} min.${warning}`;
 }
 
 function fillPlaceList(doc: Document): void {

@@ -1,6 +1,7 @@
-// Versão: 1.9
+// Versão: 2.0
+import { placeOf } from '../data/places';
 import { parseAlertRules, type AlertRules, type AlertRulesInput } from '../domain/alert-rules';
-import { parseCriteria, type CriteriaInput } from '../domain/criteria';
+import { parseCriteria, searchOrigins, type CriteriaInput } from '../domain/criteria';
 import { refreshEveryMinutes } from '../domain/saved-search';
 import type { Airport, SearchCriteria } from '../domain/types';
 import type { StoredSettings } from '../infrastructure/flight-store';
@@ -38,7 +39,8 @@ export function readAlertInput(doc: Document): AlertRulesInput {
 
 export function readCriteriaInput(doc: Document): CriteriaInput {
   return {
-    originIata: valueOf(doc, 'origin'),
+    originIata: readOriginCodes(doc)[0] ?? valueOf(doc, 'origin'),
+    originIatas: readOriginCodes(doc),
     scope: checked(doc, 'scope-internacional') ? 'internacional' : 'nacional',
     regions: checkedValues(doc, 'region'),
     states: checkedValues(doc, 'state'),
@@ -61,7 +63,7 @@ export function readCriteriaInput(doc: Document): CriteriaInput {
 
 export function fillForm(doc: Document, token: string, criteria: SearchCriteria, rules?: AlertRules): void {
   setValue(doc, 'token', token);
-  setValue(doc, 'origin', criteria.originIata);
+  writeOrigins(doc, searchOrigins(criteria));
   setChecked(doc, 'scope-nacional', criteria.scope === 'nacional');
   setChecked(doc, 'scope-internacional', criteria.scope === 'internacional');
   setChecked(doc, 'coastal-only', criteria.coastalOnly);
@@ -82,6 +84,36 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   checkNamed(doc, 'state', new Set(criteria.states));
   if (rules) fillAlertRules(doc, rules);
   syncScope(doc);
+}
+
+export function readOriginCodes(doc: Document): string[] {
+  const chips = [...doc.querySelectorAll('#origin-chips [data-iata]')]
+    .map((node) => node.getAttribute('data-iata') ?? '');
+  return searchOrigins({ originIatas: chips, originIata: valueOf(doc, 'origin') });
+}
+
+export function writeOrigins(doc: Document, origins: readonly string[]): void {
+  const codes = searchOrigins({ originIatas: origins, originIata: origins[0] ?? '' });
+  setValue(doc, 'origin', codes[codes.length - 1] ?? '');
+  const list = doc.getElementById('origin-chips');
+  if (!list) return;
+  list.replaceChildren(...codes.map((code) => originChip(doc, code, codes.length > 1)));
+}
+
+function originChip(doc: Document, code: string, removable: boolean): HTMLLIElement {
+  const item = doc.createElement('li');
+  item.dataset.iata = code;
+  const city = placeOf(code)?.city ?? code;
+  if (!removable) {
+    item.textContent = city;
+    return item;
+  }
+  const button = doc.createElement('button');
+  button.type = 'button';
+  button.dataset.iata = code;
+  button.textContent = `${city} · remover`;
+  item.append(button);
+  return item;
 }
 
 export function writeDateRange(doc: Document, start: string, end: string): void {

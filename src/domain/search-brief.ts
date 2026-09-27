@@ -1,5 +1,6 @@
-// Versão: 1.7
+// Versão: 1.8
 import { placeOf } from '../data/places';
+import { searchOrigins } from './criteria';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
 
@@ -26,7 +27,7 @@ export function buildSearchBrief(
   airports: readonly Airport[],
   storedOffers: readonly FlightOffer[] = [],
 ): SearchBrief {
-  const origin = airports.find((airport) => airport.iata === search.criteria.originIata);
+  const origin = originLabel(search, airports);
   const cheapest = [...search.offers].sort((left, right) => left.price - right.price)[0] ?? null;
   const favorites = search.mode === 'favorites';
   const anywhere = search.mode === 'anywhere';
@@ -35,7 +36,7 @@ export function buildSearchBrief(
     { label: 'Situação', value: search.running ? 'Rodando' : 'Parada' },
     { label: 'Último aviso', value: search.lastStatus || 'Sem aviso.' },
     { label: 'Atualizada', value: search.updatedAt },
-    { label: 'Origem', value: origin ? `${origin.city} · ${origin.name} (${origin.iata})` : search.criteria.originIata },
+    { label: 'Origem', value: origin },
     { label: 'Ofertas guardadas', value: String(search.offers.length) },
     { label: 'Menor preço', value: cheapest ? `${cheapest.price} ${cheapest.currency}` : 'ainda sem preço' },
     { label: 'Pausa', value: `${search.criteria.delayBetweenCallsSeconds} s` },
@@ -71,6 +72,13 @@ export function buildSearchBrief(
   };
 }
 
+function originLabel(search: SavedSearch, airports: readonly Airport[]): string {
+  return searchOrigins(search.criteria).map((code) => {
+    const airport = airports.find((item) => item.iata === code);
+    return airport ? `${airport.city} (${airport.iata})` : code;
+  }).join(' · ');
+}
+
 function dateLabel(search: SavedSearch): string {
   const { departureStart, departureEnd } = search.criteria;
   if (!departureStart && !departureEnd) return 'qualquer data';
@@ -90,8 +98,8 @@ function cheapestByDestination(search: SavedSearch, airports: readonly Airport[]
   const codes = search.mode === 'favorites'
     ? search.favoriteDestinations
     : [...new Set(search.offers.map((offer) => offer.destination))];
-  const origin = search.criteria.originIata.toUpperCase();
-  const pool = [...search.offers, ...storedOffers.filter((offer) => offer.origin === origin)];
+  const origins = new Set(searchOrigins(search.criteria));
+  const pool = [...search.offers, ...storedOffers.filter((offer) => origins.has(offer.origin))];
   return codes.map((code) => {
     const airport = airports.find((item) => item.iata === code);
     const offer = pool

@@ -1,9 +1,10 @@
-// Versão: 1.4
+// Versão: 1.5
 import type { Airport, FlightOffer, SearchCriteria } from '../src/domain/types';
 
 export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchCriteria {
-  return {
+  const criteria: SearchCriteria = {
     originIata: 'GRU',
+    originIatas: ['GRU'],
     scope: 'nacional',
     regions: [],
     states: [],
@@ -23,6 +24,8 @@ export function sampleCriteria(overrides: Partial<SearchCriteria> = {}): SearchC
     offerSort: 'price',
     ...overrides,
   };
+  const originIatas = overrides.originIatas ?? [criteria.originIata];
+  return { ...criteria, originIatas, originIata: originIatas[0] ?? criteria.originIata };
 }
 
 export function sampleOffer(overrides: Partial<FlightOffer> = {}): FlightOffer {

@@ -1,4 +1,5 @@
-// Versão: 1.8
+// Versão: 1.9
+import { searchOrigins } from './criteria';
 import { applyOfferFilters } from './filters';
 import { markAcrossDestinations, markBargains } from './price-anomaly';
 import { buildSearchPlan } from './search-plan';
@@ -9,10 +10,16 @@ export function presentOffers(
   criteria: SearchCriteria,
   airports: readonly Airport[],
 ): FlightOffer[] {
-  const plan = buildSearchPlan(criteria, airports);
-  const allowed = new Set(plan.destinations.map((airport) => airport.iata));
-  const inScope = stored.filter((offer) => offer.origin === criteria.originIata && allowed.has(offer.destination));
-  const filtered = applyOfferFilters(inScope, criteria, plan.windows);
+  const origins = new Set(searchOrigins(criteria));
+  const allowed = new Set<string>();
+  let windows = buildSearchPlan(criteria, airports).windows;
+  for (const origin of origins) {
+    const plan = buildSearchPlan({ ...criteria, originIata: origin }, airports);
+    windows = plan.windows;
+    for (const airport of plan.destinations) allowed.add(airport.iata);
+  }
+  const inScope = stored.filter((offer) => origins.has(offer.origin) && allowed.has(offer.destination));
+  const filtered = applyOfferFilters(inScope, criteria, windows);
   const marked = markBargains(filtered, criteria.bargainRatio);
   const pool = criteria.includeRegularPrices === false ? lowPrices(marked) : marked;
   const visible = criteria.bargainsOnly ? pool.filter((offer) => offer.isBargain) : pool;
@@ -21,30 +28,35 @@ export function presentOffers(
 
 export function presentFavoriteOffers(
   stored: readonly FlightOffer[],
-  originIata: string,
+  originIata: string | readonly string[],
   destinations: readonly string[],
   sort: OfferSort = 'price',
   bargainRatio = 0.7,
 ): FlightOffer[] {
-  const origin = originIata.toUpperCase();
+  const origins = originSet(originIata);
   const allowed = new Set(destinations.map((code) => code.toUpperCase()));
-  const visible = stored.filter((offer) => offer.origin === origin && allowed.has(offer.destination));
+  const visible = stored.filter((offer) => origins.has(offer.origin) && allowed.has(offer.destination));
   return markBargains(visible, bargainRatio).sort(compareOffers(sort));
 }
 
 /** Um preço por destino, o mais barato primeiro, comparado com a mediana de todos. */
 export function presentAnywhereOffers(
   stored: readonly FlightOffer[],
-  originIata: string,
+  originIata: string | readonly string[],
   sort: OfferSort = 'price',
   bargainRatio = 0.7,
   scope?: SearchCriteria['scope'],
   airports: readonly Airport[] = [],
 ): FlightOffer[] {
-  const origin = originIata.toUpperCase();
-  const mine = stored.filter((offer) => offer.origin === origin && matchesAnywhereScope(offer.destination, scope, airports));
+  const origins = originSet(originIata);
+  const mine = stored.filter((offer) => origins.has(offer.origin) && matchesAnywhereScope(offer.destination, scope, airports));
   const cheapest = [...cheapestByDestination(mine).values()];
   return markAcrossDestinations(cheapest, bargainRatio).sort(compareOffers(sort));
+}
+
+function originSet(origin: string | readonly string[]): Set<string> {
+  const values = typeof origin === 'string' ? [origin] : origin;
+  return new Set(values.map((code) => code.toUpperCase()));
 }
 
 function matchesAnywhereScope(

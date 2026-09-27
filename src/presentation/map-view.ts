@@ -1,4 +1,4 @@
-// Versão: 1.2
+// Versão: 1.3
 import L from 'leaflet';
 import { greatCircle } from '../domain/flight-path';
 import type { Airport, FlightOffer } from '../domain/types';
@@ -22,11 +22,12 @@ export class MapView {
     window.addEventListener('resize', () => this.map.invalidateSize());
   }
 
-  update(offers: readonly FlightOffer[], airports: readonly Airport[], originIata: string): void {
+  update(offers: readonly FlightOffer[], airports: readonly Airport[], originIata: string | readonly string[]): void {
     this.layer.clearLayers();
     const byIata = new Map(airports.map((airport) => [airport.iata, airport]));
     const bounds: L.LatLngTuple[] = [];
-    this.addOrigin(byIata.get(originIata), bounds);
+    const origins = typeof originIata === 'string' ? [originIata] : originIata;
+    for (const code of origins) this.addOrigin(byIata.get(code), bounds);
     for (const [iata, offer] of cheapestByDestination(offers)) {
       const airport = byIata.get(iata);
       if (!airport) continue;

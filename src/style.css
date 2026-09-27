@@ -1,4 +1,4 @@
-/* Versão: 4.1 */
+/* Versão: 4.2 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -160,7 +160,10 @@ fieldset:disabled { opacity: 0.62; }
   align-items: end;
 }
 .toolbar > label:first-child,
+.toolbar .origin-field,
 .toolbar .date-field { flex: 1 1 11rem; min-width: 0; }
+.origin-field { display: grid; gap: 0.35rem; align-content: start; }
+.origin-field .favorite-chips { margin: 0; }
 .toolbar__interval { flex: 0 0 auto; }
 .toolbar__interval input { width: 4.25rem; }
 #search-button { flex: 0 0 auto; }

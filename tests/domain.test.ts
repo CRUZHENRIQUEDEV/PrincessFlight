@@ -1,9 +1,9 @@
-// Versão: 1.2
+// Versão: 1.3
 import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
 import { groupOffersByDestination, presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../src/domain/present-offers';
-import { parseAirlines, parseCriteria, rollDatesToTomorrow } from '../src/domain/criteria';
+import { parseAirlines, parseCriteria, rollDatesToTomorrow, searchOrigins } from '../src/domain/criteria';
 import type { Airport, FlightOffer, HolidayWindow } from '../src/domain/types';
 import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
 
@@ -108,6 +108,10 @@ describe('apresentação', () => {
     const visible = presentOffers(stored, sampleCriteria({ states: ['BA'] }), sampleAirports());
     expect(visible.map((offer) => offer.id)).toEqual(['barato', 'caro']);
     expect(visible[0].isBargain).toBe(true);
+    const both = presentOffers(stored, sampleCriteria({ states: ['BA'], originIatas: ['GRU', 'BSB'] }), sampleAirports());
+    expect(both.map((offer) => offer.id)).toEqual(['outra', 'barato', 'caro']);
+    expect(searchOrigins({ originIata: 'gru' })).toEqual(['GRU']);
+    expect(searchOrigins({ originIata: 'GRU', originIatas: ['bsb', 'BSB', 'gru'] })).toEqual(['BSB', 'GRU']);
   });
 
   it('só preços baixos esconde quem está na mediana ou acima', () => {

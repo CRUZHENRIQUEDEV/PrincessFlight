@@ -1,4 +1,4 @@
-<!-- Versão: 3.6 -->
+<!-- Versão: 3.7 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -36,10 +36,13 @@
         <fieldset id="criteria-fields">
           <legend class="sr-only">Critérios da busca</legend>
           <div class="toolbar">
-            <label>
-              Origem
-              <select id="origin"></select>
-            </label>
+            <div class="origin-field">
+              <label>
+                Origem
+                <select id="origin" title="Trocar o aeroporto inclui outra origem nesta pesquisa."></select>
+              </label>
+              <ul id="origin-chips" class="favorite-chips" aria-label="Origens desta pesquisa"></ul>
+            </div>
             <div class="date-field">
               <span class="date-field__label">Datas da ida</span>
               <button id="date-open" class="date-open" type="button" aria-haspopup="dialog" aria-expanded="false">Escolha as datas</button>

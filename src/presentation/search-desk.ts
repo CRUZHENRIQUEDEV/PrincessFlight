@@ -1,11 +1,11 @@
-// Versão: 1.9
+// Versão: 2.0
 import { AIRPORTS } from '../data/airports';
 import { placeOf } from '../data/places';
 import { freshRouteOffers } from '../domain/known-offers';
 import { mergeOffers } from '../domain/offer-archive';
-import { rollDatesToTomorrow, validateSearch } from '../domain/criteria';
+import { rollDatesToTomorrow, searchOrigins, validateSearch } from '../domain/criteria';
 import { refreshEveryMinutes, rescheduleRound, type SavedSearch } from '../domain/saved-search';
-import { buildSearchPlan } from '../domain/search-plan';
+import { buildSearchPlan, countOriginCalls } from '../domain/search-plan';
 import type { FlightOffer, SearchCriteria } from '../domain/types';
 import { delay, isAbortError } from '../infrastructure/delay';
 import { runAnywhereRound } from '../infrastructure/anywhere-runner';
@@ -108,7 +108,7 @@ function withFutureDates(search: SavedSearch): SavedSearch {
 function refusalMessage(search: SavedSearch, token: string): string | null {
   if (search.mode === 'favorites' || search.mode === 'anywhere') {
     if (!token.trim()) return 'Cole o token da Travelpayouts. Ele fica salvo só neste navegador.';
-    if (!search.criteria.originIata) return 'Escolha a origem.';
+    if (searchOrigins(search.criteria).length === 0) return 'Escolha a origem.';
     return null;
   }
   const plan = buildSearchPlan(search.criteria, AIRPORTS);
@@ -120,19 +120,23 @@ function announceStart(deps: SearchDeskDeps, id: string, mode: 'once' | 'monitor
   if (!search) return;
   const known = deps.knownOffers?.() ?? [];
   const now = new Date().toISOString();
+  const origins = searchOrigins(search.criteria);
   if (search.mode === 'favorites') {
-    const total = search.favoriteDestinations.length;
+    const pairs = favoritePairs(search);
     const saved = countFreshFavorites(search, known, now);
-    publishStart(deps, id, mode, total, startLine(total, total, saved, 'destinos favoritos'));
+    publishStart(deps, id, mode, pairs, startLine(pairs, pairs, saved, 'trechos de favoritos'));
     return;
   }
   if (search.mode === 'anywhere') {
-    publishStart(deps, id, mode, 1, 'Busca iniciada · qualquer destino · qualquer data · 1 chamada.');
+    const calls = Math.max(1, origins.length);
+    publishStart(deps, id, mode, calls, `Busca iniciada · qualquer destino · qualquer data · ${calls} ${calls === 1 ? 'chamada' : 'chamadas'}.`);
     return;
   }
-  const plan = buildSearchPlan(search.criteria, AIRPORTS);
-  const saved = countFreshPairs(search, known, now, plan.destinations.map((airport) => airport.iata), plan.months);
-  publishStart(deps, id, mode, plan.callCount, startLine(plan.destinations.length, plan.callCount, saved, 'destinos'));
+  const counted = countOriginCalls(search.criteria, AIRPORTS);
+  const saved = countFreshPairs(search, known, now);
+  const label = origins.length > 1 ? 'origens' : 'destinos';
+  const amount = origins.length > 1 ? origins.length : counted.destinations;
+  publishStart(deps, id, mode, counted.calls, startLine(amount, counted.calls, saved, label));
 }
 
 function favoriteFound(ticketCount: number, reused: boolean, via: string | null): string {
@@ -152,24 +156,27 @@ function startLine(destinations: number, calls: number, saved: number, label: st
   return `Busca iniciada · ${destinations} ${label} · ${kept} · ${Math.max(0, calls - saved)} chamadas.`;
 }
 
-function countFreshFavorites(search: SavedSearch, known: readonly FlightOffer[], now: string): number {
-  const freshForMs = refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000;
-  return search.favoriteDestinations.filter((destination) =>
-    freshRouteOffers(known, search.criteria.originIata, destination, now, freshForMs).length > 0,
-  ).length;
+function favoritePairs(search: SavedSearch): number {
+  return searchOrigins(search.criteria)
+    .reduce((total, origin) => total + search.favoriteDestinations.filter((code) => code !== origin).length, 0);
 }
 
-function countFreshPairs(
-  search: SavedSearch,
-  known: readonly FlightOffer[],
-  now: string,
-  destinations: readonly string[],
-  months: readonly string[],
-): number {
+function countFreshFavorites(search: SavedSearch, known: readonly FlightOffer[], now: string): number {
   const freshForMs = refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000;
-  return destinations.flatMap((destination) => months.map((month) => ({ destination, month })))
-    .filter((pair) => freshRouteOffers(known, search.criteria.originIata, pair.destination, now, freshForMs, pair.month).length > 0)
-    .length;
+  return searchOrigins(search.criteria).reduce((total, origin) => total + search.favoriteDestinations.filter((destination) =>
+    destination !== origin && freshRouteOffers(known, origin, destination, now, freshForMs).length > 0,
+  ).length, 0);
+}
+
+function countFreshPairs(search: SavedSearch, known: readonly FlightOffer[], now: string): number {
+  const freshForMs = refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000;
+  return searchOrigins(search.criteria).reduce((total, origin) => {
+    const plan = buildSearchPlan({ ...search.criteria, originIata: origin }, AIRPORTS);
+    const fresh = plan.destinations.flatMap((airport) => plan.months.filter((month) =>
+      freshRouteOffers(known, origin, airport.iata, now, freshForMs, month).length > 0,
+    ));
+    return total + fresh.length;
+  }, 0);
 }
 
 function publishStart(
@@ -228,34 +235,62 @@ async function oneRound(
   const plan = buildSearchPlan(current.criteria, AIRPORTS);
   const error = validateSearch(current.criteria, plan, deps.readToken());
   if (error) return halt(deps, search.id, error, true, stale);
-  const result = await runSearch({
-    criteria: current.criteria,
-    airports: AIRPORTS,
-    token: deps.readToken(),
-    provider: deps.provider,
-    signal,
-    sleep: delay,
-    now: () => new Date().toISOString(),
-    knownOffers: () => deps.knownOffers?.() ?? [],
-    freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
-    onProgress: (progress) => {
-      if (stale()) return;
-      showConsulting(deps, search.id, progress.completedCalls, progress.totalCalls, progress.destination, progress.month);
-    },
-    onRoute: (report) => {
-      if (stale()) return;
-      showRoute(deps, search.id, report);
-    },
-    onBatch: (batch) => {
-      if (stale()) return;
-      showBatch(deps, search.id, batch);
-    },
-  });
-  if (stale()) return 'stop';
-  if (result.status === 'error') return halt(deps, search.id, result.message ?? 'Falha na busca.', true, stale);
-  if (result.status === 'stopped' || signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
-  conclude(deps, search, result.offers, result.message, closing);
+  const origins = searchOrigins(current.criteria);
+  const collected: FlightOffer[] = [];
+  let note: string | null = null;
+  for (let index = 0; index < origins.length; index += 1) {
+    if (stale() || signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    const paused = await pauseBetweenOrigins(index, current.criteria.delayBetweenCallsSeconds, signal);
+    if (paused === 'stop') return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    const origin = origins[index] ?? current.criteria.originIata;
+    const result = await runSearch({
+      criteria: { ...current.criteria, originIata: origin },
+      airports: AIRPORTS,
+      token: deps.readToken(),
+      provider: deps.provider,
+      signal,
+      sleep: delay,
+      now: () => new Date().toISOString(),
+      knownOffers: () => deps.knownOffers?.() ?? [],
+      freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
+      onProgress: (progress) => {
+        if (stale()) return;
+        showConsulting(deps, search.id, progress.completedCalls, progress.totalCalls, routeCity(origin, progress.destination, origins.length), progress.month);
+      },
+      onRoute: (report) => {
+        if (stale()) return;
+        showRoute(deps, search.id, report);
+      },
+      onBatch: (batch) => {
+        if (stale()) return;
+        showBatch(deps, search.id, batch);
+      },
+    });
+    if (stale()) return 'stop';
+    if (result.status === 'error') return halt(deps, search.id, result.message ?? 'Falha na busca.', true, stale);
+    if (result.status === 'stopped' || signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+    collected.push(...result.offers);
+    if (result.message) note = result.message;
+  }
+  conclude(deps, search, collected, note, closing);
   return 'continue';
+}
+
+async function pauseBetweenOrigins(index: number, seconds: number, signal: AbortSignal): Promise<'stop' | 'go'> {
+  if (index === 0) return 'go';
+  try {
+    await delay(seconds * 1000, signal);
+    return 'go';
+  } catch (error) {
+    if (isAbortError(error)) return 'stop';
+    throw error;
+  }
+}
+
+function routeCity(origin: string, destination: string, originCount: number): string {
+  const city = AIRPORTS.find((item) => item.iata === destination)?.city ?? destination;
+  if (originCount < 2) return destination;
+  return `${placeName(origin)} → ${city}`;
 }
 
 async function anywhereRound(
@@ -265,24 +300,33 @@ async function anywhereRound(
   stale: () => boolean,
   closing: boolean,
 ): Promise<'continue' | 'stop'> {
-  const line = 'Consultando o cache · qualquer destino · qualquer data';
-  deps.patch(search.id, { progress: { done: 0, total: 1 }, lastStatus: line });
+  const origins = searchOrigins(search.criteria);
+  const line = origins.length > 1
+    ? `Consultando o cache · ${origins.length} origens · qualquer destino · qualquer data`
+    : 'Consultando o cache · qualquer destino · qualquer data';
+  deps.patch(search.id, { progress: { done: 0, total: origins.length }, lastStatus: line });
   if (deps.isActive(search.id)) deps.setStatus(line, false);
   try {
-    const found = await runAnywhereRound({
-      origin: search.criteria.originIata,
-      token: deps.readToken(),
-      provider: deps.provider,
-      signal,
-      now: () => new Date().toISOString(),
-      knownOffers: () => deps.knownOffers?.() ?? [],
-      freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
-    });
+    const found: FlightOffer[] = [];
+    for (let index = 0; index < origins.length; index += 1) {
+      const paused = await pauseBetweenOrigins(index, search.criteria.delayBetweenCallsSeconds, signal);
+      if (paused === 'stop') return halt(deps, search.id, 'Busca interrompida.', false, stale);
+      const batch = await runAnywhereRound({
+        origin: origins[index] ?? search.criteria.originIata,
+        token: deps.readToken(),
+        provider: deps.provider,
+        signal,
+        now: () => new Date().toISOString(),
+        knownOffers: () => deps.knownOffers?.() ?? [],
+        freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
+      });
+      found.push(...batch);
+    }
     if (stale()) return 'stop';
     if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
     const note = found.length === 0
-      ? '1 de 1 · qualquer destino · nenhum preço guardado; a API só devolve tarifas que alguém já buscou'
-      : `1 de 1 · qualquer destino · ${found.length} preços no cache`;
+      ? `${origins.length} de ${origins.length} · qualquer destino · nenhum preço guardado; a API só devolve tarifas que alguém já buscou`
+      : `${origins.length} de ${origins.length} · qualquer destino · ${found.length} preços no cache`;
     deps.note(note);
     conclude(deps, search, found, null, closing);
     return 'continue';
@@ -294,55 +338,66 @@ async function anywhereRound(
   }
 }
 
-function favoriteRound(
+async function favoriteRound(
   deps: SearchDeskDeps,
   search: SavedSearch,
   signal: AbortSignal,
   stale: () => boolean,
   closing: boolean,
 ): Promise<'continue' | 'stop'> {
-  return runFavoriteRound({
-    origin: search.criteria.originIata,
-    destinations: search.favoriteDestinations,
-    token: deps.readToken(),
-    provider: deps.provider,
-    signal,
-    sleep: delay,
-    delaySeconds: search.criteria.delayBetweenCallsSeconds,
-    now: () => new Date().toISOString(),
-    knownOffers: () => deps.knownOffers?.() ?? [],
-    freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
-    onProgress: (done, total, destination, hub) => {
-      if (stale()) return;
-      const month = hub ? `qualquer data · escala em ${placeName(hub)}` : 'qualquer data';
-      showConsulting(deps, search.id, done, total, destination, month);
-    },
-    onRoute: (progress) => {
-      if (stale()) return;
-      const airport = AIRPORTS.find((item) => item.iata === progress.destination);
-      const city = airport?.city ?? progress.destination;
-      const found = favoriteFound(progress.ticketCount, progress.reused, progress.via);
-      const line = `${progress.completedCalls} de ${progress.totalCalls} · ${city} · qualquer data · ${found}`;
-      deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
-      if (!deps.isActive(search.id)) return;
-      deps.setStatus(line, false);
-      deps.note(line);
-    },
-    onBatch: (batch) => {
-      if (stale()) return;
-      showBatch(deps, search.id, batch);
-    },
-  }).then((found) => {
-    if (stale()) return 'stop' as const;
-    if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
-    conclude(deps, search, found, null, closing);
-    return 'continue' as const;
-  }).catch((error: unknown) => {
-    if (stale()) return 'stop' as const;
+  const origins = searchOrigins(search.criteria);
+  const found: FlightOffer[] = [];
+  try {
+    for (let index = 0; index < origins.length; index += 1) {
+      const origin = origins[index] ?? search.criteria.originIata;
+      const destinations = search.favoriteDestinations.filter((code) => code !== origin);
+      if (destinations.length === 0) continue;
+      const paused = await pauseBetweenOrigins(index, search.criteria.delayBetweenCallsSeconds, signal);
+      if (paused === 'stop') return halt(deps, search.id, 'Busca interrompida.', false, stale);
+      const batch = await runFavoriteRound({
+        origin,
+        destinations,
+        token: deps.readToken(),
+        provider: deps.provider,
+        signal,
+        sleep: delay,
+        delaySeconds: search.criteria.delayBetweenCallsSeconds,
+        now: () => new Date().toISOString(),
+        knownOffers: () => deps.knownOffers?.() ?? [],
+        freshForMs: refreshEveryMinutes(search.criteria.repeatEveryMinutes) * 60_000,
+        onProgress: (done, total, destination, hub) => {
+          if (stale()) return;
+          const month = hub ? `qualquer data · escala em ${placeName(hub)}` : 'qualquer data';
+          showConsulting(deps, search.id, done, total, routeCity(origin, destination, origins.length), month);
+        },
+        onRoute: (progress) => {
+          if (stale()) return;
+          const city = routeCity(origin, progress.destination, origins.length);
+          const label = city.includes('→') ? city : (AIRPORTS.find((item) => item.iata === progress.destination)?.city ?? city);
+          const text = favoriteFound(progress.ticketCount, progress.reused, progress.via);
+          const line = `${progress.completedCalls} de ${progress.totalCalls} · ${label} · qualquer data · ${text}`;
+          deps.patch(search.id, { progress: { done: progress.completedCalls, total: progress.totalCalls }, lastStatus: line });
+          if (!deps.isActive(search.id)) return;
+          deps.setStatus(line, false);
+          deps.note(line);
+        },
+        onBatch: (offers) => {
+          if (stale()) return;
+          showBatch(deps, search.id, offers);
+        },
+      });
+      found.push(...batch);
+    }
+  } catch (error) {
+    if (stale()) return 'stop';
     if (isAbortError(error)) return halt(deps, search.id, 'Busca interrompida.', false, stale);
     const message = error instanceof Error ? error.message : 'Falha na busca.';
     return halt(deps, search.id, message, true, stale);
-  });
+  }
+  if (stale()) return 'stop';
+  if (signal.aborted) return halt(deps, search.id, 'Busca interrompida.', false, stale);
+  conclude(deps, search, found, null, closing);
+  return 'continue';
 }
 
 function halt(
@@ -413,7 +468,8 @@ function showConsulting(
   month: string,
 ): void {
   const airport = AIRPORTS.find((item) => item.iata === destination);
-  const line = describeConsulting({ completedCalls: done, totalCalls: total, city: airport?.city ?? destination, month });
+  const city = destination.includes('→') ? destination : airport?.city ?? destination;
+  const line = describeConsulting({ completedCalls: done, totalCalls: total, city, month });
   deps.patch(id, { progress: { done, total }, lastStatus: line });
   if (deps.isActive(id)) deps.setStatus(line, false);
 }

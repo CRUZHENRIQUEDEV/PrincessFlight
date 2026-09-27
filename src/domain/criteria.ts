@@ -1,4 +1,4 @@
-// Versão: 1.6
+// Versão: 1.7
 import { addDays, todayIso, tomorrowIso } from './iso-date';
 import { normalizeTripLength } from './filters';
 import type { OfferSort, Region, SearchCriteria, TripScope } from './types';
@@ -8,6 +8,7 @@ const REGIONS: readonly Region[] = ['norte', 'nordeste', 'centro-oeste', 'sudest
 
 export interface CriteriaInput {
   originIata: string;
+  originIatas?: readonly string[];
   scope: string;
   regions: string[];
   states: string[];
@@ -36,6 +37,7 @@ export function createDefaultCriteria(today = todayIso()): SearchCriteria {
   const departureStart = tomorrowIso(today);
   return {
     originIata: 'GRU',
+    originIatas: ['GRU'],
     scope: 'nacional',
     regions: [],
     states: [],
@@ -87,9 +89,11 @@ export function parseCriteria(input: CriteriaInput, today = todayIso()): ParsedC
   const tripLength = optionalInteger(input.tripLengthDays);
   const fieldError = firstFieldError(priceMin, priceMax, bargain, delay, repeat);
   const dates = rollDatesToTomorrow(input.departureStart, input.departureEnd, today);
+  const originIatas = searchOrigins({ originIata: input.originIata, originIatas: input.originIatas });
   return {
     criteria: {
-      originIata: input.originIata.trim().toUpperCase(),
+      originIata: originIatas[0] ?? '',
+      originIatas,
       scope: parseScope(input.scope),
       regions: parseRegions(input.regions),
       states: input.states.map((state) => state.toUpperCase()),
@@ -119,7 +123,7 @@ export function validateSearch(
   today = todayIso(),
 ): string | null {
   if (!token.trim()) return 'Cole o token da Travelpayouts. Ele fica salvo só neste navegador.';
-  if (!criteria.originIata) return 'Escolha a origem.';
+  if (searchOrigins(criteria).length === 0) return 'Escolha a origem.';
   if (!criteria.departureStart || !criteria.departureEnd) return 'Informe o intervalo de datas.';
   if (criteria.departureStart > criteria.departureEnd) return 'A data inicial é posterior à data final.';
   const minimum = tomorrowIso(today);
@@ -138,6 +142,20 @@ export function validateSearch(
     return 'Nenhuma ponte de feriado (quinta, sexta, segunda ou terça) nesse intervalo.';
   }
   return null;
+}
+
+/** Origens desta pesquisa. Pesquisa antiga, só com um código, continua valendo. */
+export function searchOrigins(criteria: { originIata?: string; originIatas?: readonly string[] | null }): string[] {
+  const listed = normalizeOriginCodes(criteria.originIatas);
+  if (listed.length > 0) return listed;
+  return normalizeOriginCodes([criteria.originIata ?? '']);
+}
+
+function normalizeOriginCodes(codes: readonly string[] | null | undefined): string[] {
+  const clean = (codes ?? [])
+    .map((code) => code.trim().toUpperCase())
+    .filter((code) => /^[A-Z]{3}$/.test(code));
+  return [...new Set(clean)];
 }
 
 function parseScope(value: string): TripScope {

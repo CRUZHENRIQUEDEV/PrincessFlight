@@ -1,4 +1,4 @@
-// Versão: 1.9
+// Versão: 2.0
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
@@ -20,6 +20,7 @@ export interface Airport {
 
 export interface SearchCriteria {
   originIata: string;
+  originIatas: string[];
   scope: TripScope;
   regions: Region[];
   states: string[];

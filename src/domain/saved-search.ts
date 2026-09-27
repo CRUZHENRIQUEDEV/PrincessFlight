@@ -1,5 +1,6 @@
-// Versão: 1.7
+// Versão: 1.8
 import { createDefaultAlertRules, type AlertRules } from './alert-rules';
+import { searchOrigins } from './criteria';
 import type { FlightOffer, SearchCriteria } from './types';
 
 export const FAVORITES_SEARCH_NAME = 'Destinos favoritos';
@@ -57,6 +58,7 @@ export function createSavedSearch(
 export function favoritesCriteria(originIata: string): SearchCriteria {
   return {
     originIata: originIata.trim().toUpperCase() || 'GRU',
+    originIatas: [originIata.trim().toUpperCase() || 'GRU'],
     scope: 'nacional',
     regions: [],
     states: [],
@@ -101,8 +103,19 @@ export function normalizeSavedSearch(search: SavedSearch): SavedSearch {
   return {
     ...search,
     mode,
+    criteria: normalizeCriteriaOrigins(search.criteria),
     favoriteDestinations: [...new Set(codes.map((code) => code.trim().toUpperCase()).filter((code) => /^[A-Z]{3}$/.test(code)))],
     notes: typeof search.notes === 'string' ? search.notes : '',
+  };
+}
+
+/** Completa a lista quando a pesquisa foi salva com uma origem só. */
+export function normalizeCriteriaOrigins(criteria: SearchCriteria): SearchCriteria {
+  const originIatas = searchOrigins(criteria);
+  return {
+    ...criteria,
+    originIata: originIatas[0] ?? criteria.originIata,
+    originIatas,
   };
 }
 
@@ -136,7 +149,7 @@ export function ensurePinnedSearches(
 
 export function withFavoriteDestination(search: SavedSearch, iata: string, included: boolean): SavedSearch {
   const code = iata.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(code) || code === search.criteria.originIata) return search;
+  if (!/^[A-Z]{3}$/.test(code) || searchOrigins(search.criteria).includes(code)) return search;
   const current = search.favoriteDestinations;
   const next = included
     ? [...new Set([...current, code])]

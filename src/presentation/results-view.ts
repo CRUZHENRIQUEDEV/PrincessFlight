@@ -1,4 +1,4 @@
-// Versão: 1.8
+// Versão: 1.9
 import { placeOf } from '../data/places';
 import { anyDateWarning } from '../domain/filters';
 import { priceFoundAt } from '../domain/offer';
@@ -25,8 +25,9 @@ export class ResultsView {
     this.body.replaceChildren();
     this.summary.textContent = summaryText(storedCount, offers);
     const byIata = new Map(airports.map((airport) => [airport.iata, airport]));
+    const severalOrigins = new Set(offers.map((offer) => offer.origin)).size > 1;
     for (const group of groupOffersByDestination(offers)) {
-      this.body.append(this.group(group, byIata, onSelect, freshIds));
+      this.body.append(this.group(group, byIata, onSelect, freshIds, severalOrigins));
     }
   }
 
@@ -35,19 +36,20 @@ export class ResultsView {
     byIata: Map<string, Airport>,
     onSelect: (offer: FlightOffer) => void,
     freshIds: ReadonlySet<string>,
+    severalOrigins: boolean,
   ): HTMLElement {
     const lead = offers[0];
     if (!lead) return document.createElement('div');
     if (offers.length === 1) {
-      return this.card(lead, byIata.get(lead.destination), onSelect, freshIds.has(lead.id));
+      return this.card(lead, byIata.get(lead.destination), onSelect, freshIds.has(lead.id), severalOrigins);
     }
     const section = document.createElement('section');
     section.className = 'offer-group';
     const open = this.openDestinations.has(lead.destination);
     section.append(
-      this.card(lead, byIata.get(lead.destination), onSelect, freshIds.has(lead.id)),
+      this.card(lead, byIata.get(lead.destination), onSelect, freshIds.has(lead.id), severalOrigins),
       this.toggle(lead.destination, offers.length - 1, open),
-      this.rest(offers.slice(1), byIata, onSelect, freshIds, open),
+      this.rest(offers.slice(1), byIata, onSelect, freshIds, open, severalOrigins),
     );
     return section;
   }
@@ -77,23 +79,24 @@ export class ResultsView {
     onSelect: (offer: FlightOffer) => void,
     freshIds: ReadonlySet<string>,
     open: boolean,
+    severalOrigins: boolean,
   ): HTMLElement {
     const stack = document.createElement('div');
     stack.className = 'offer-group__rest';
     stack.hidden = !open;
     for (const offer of offers) {
-      stack.append(this.card(offer, byIata.get(offer.destination), onSelect, freshIds.has(offer.id)));
+      stack.append(this.card(offer, byIata.get(offer.destination), onSelect, freshIds.has(offer.id), severalOrigins));
     }
     return stack;
   }
 
-  private card(offer: FlightOffer, airport: Airport | undefined, onSelect: (offer: FlightOffer) => void, fresh: boolean): HTMLElement {
+  private card(offer: FlightOffer, airport: Airport | undefined, onSelect: (offer: FlightOffer) => void, fresh: boolean, severalOrigins: boolean): HTMLElement {
     const card = document.createElement('article');
     const bargain = offer.isBargain ? ' offer--bargain' : '';
     const newest = fresh ? ' offer--fresh' : '';
     card.className = `offer${bargain}${newest}`;
     card.tabIndex = 0;
-    const nodes: HTMLElement[] = [heading(offer, airport), gapLine(offer), metaLine(offer)];
+    const nodes: HTMLElement[] = [heading(offer, airport, severalOrigins), gapLine(offer), metaLine(offer)];
     const warning = connectLine(offer);
     if (warning) nodes.push(warning);
     const found = foundLine(offer);
@@ -124,7 +127,7 @@ function extraLabel(count: number): string {
   return count === 1 ? '1 preço' : `${count} preços`;
 }
 
-function heading(offer: FlightOffer, airport: Airport | undefined): HTMLElement {
+function heading(offer: FlightOffer, airport: Airport | undefined, severalOrigins: boolean): HTMLElement {
   const top = document.createElement('div');
   top.className = 'offer__top';
   const place = document.createElement('div');
@@ -134,7 +137,8 @@ function heading(offer: FlightOffer, airport: Airport | undefined): HTMLElement 
   city.textContent = named?.city ?? airport?.city ?? offer.destination;
   const code = document.createElement('p');
   code.className = 'offer__code';
-  code.textContent = named?.country ?? airport?.iata ?? offer.destination;
+  const from = placeOf(offer.origin)?.city ?? offer.origin;
+  code.textContent = severalOrigins ? `saindo de ${from}` : named?.country ?? airport?.iata ?? offer.destination;
   place.append(city, code);
   const price = document.createElement('p');
   price.className = 'offer__price';
