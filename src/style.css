@@ -1,4 +1,4 @@
-/* Versão: 4.3 */
+/* Versão: 4.4 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -154,18 +154,21 @@ fieldset { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 fieldset:disabled { opacity: 0.62; }
 
 .toolbar {
+  --field-label: calc(0.75rem * 1.4 + 0.3rem);
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem 0.65rem;
-  align-items: end;
+  align-items: start;
 }
 .toolbar > label:first-child,
 .toolbar .origin-field,
 .toolbar .date-field { flex: 1 1 11rem; min-width: 0; }
 .origin-field { display: grid; gap: 0.35rem; align-content: start; }
 .origin-field .favorite-chips { margin: 0; }
-.toolbar__interval { flex: 0 0 auto; }
+.toolbar__interval { flex: 0 0 auto; white-space: nowrap; }
 .toolbar__interval input { width: 4.25rem; }
+.toolbar .segment,
+.toolbar #search-button { margin-top: var(--field-label); }
 #search-button { flex: 0 0 auto; }
 
 label { display: grid; gap: 0.3rem; font-size: 0.75rem; color: var(--muted); }
@@ -227,7 +230,7 @@ input, select {
 .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .chip:has(input:checked) { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-.date-field { position: relative; display: grid; gap: 0.3rem; align-content: end; }
+.date-field { position: relative; display: grid; gap: 0.3rem; align-content: start; }
 .date-field__label { font-size: 0.75rem; color: var(--muted); }
 .date-field__return { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.75rem; }
 .date-open {
