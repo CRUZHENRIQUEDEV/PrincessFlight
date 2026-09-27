@@ -1,4 +1,5 @@
-// Versão: 1.2
+// Versão: 1.3
+import { matchesBridgeTrip } from './holiday-windows';
 import { calendarDay, daysBetween } from './iso-date';
 import type { Airport, FlightOffer, HolidayWindow, SearchCriteria } from './types';
 
@@ -37,6 +38,7 @@ function matchesDestination(
 }
 
 function matchesDate(offer: FlightOffer, criteria: SearchCriteria): boolean {
+  if (criteria.holidayBridgeOnly) return true;
   if (!criteria.departureStart && !criteria.departureEnd) return true;
   const day = calendarDay(offer.departureAt);
   if (!day || !criteria.departureStart || !criteria.departureEnd) return false;
@@ -85,8 +87,7 @@ function matchesHoliday(
   windows: readonly HolidayWindow[],
 ): boolean {
   if (!criteria.holidayBridgeOnly) return true;
-  const day = calendarDay(offer.departureAt);
-  return windows.some((window) => day >= window.departureDate && day <= window.returnDate);
+  return windows.some((window) => matchesBridgeTrip(offer, window));
 }
 
 function matchesPrice(offer: FlightOffer, criteria: SearchCriteria): boolean {

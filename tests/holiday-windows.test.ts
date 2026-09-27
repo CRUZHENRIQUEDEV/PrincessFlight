@@ -1,7 +1,10 @@
-// Versão: 1.0
+// Versão: 1.1
 import { describe, expect, it } from 'vitest';
+import { applyOfferFilters } from '../src/domain/filters';
 import { addDays, calendarDay, listMonths, weekday } from '../src/domain/iso-date';
-import { easterDate, listHolidayBridges } from '../src/domain/holiday-windows';
+import { buildSearchPlan } from '../src/domain/search-plan';
+import { easterDate, listHolidayBridges, matchesBridgeTrip } from '../src/domain/holiday-windows';
+import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
 
 describe('datas civis', () => {
   it('soma dias atravessando o mês', () => {
@@ -28,13 +31,13 @@ describe('pontes de feriado', () => {
     expect(easterDate(2026)).toBe('2026-04-05');
   });
 
-  it('trata 1º de janeiro de 2026 como quinta, com volta no domingo', () => {
+  it('trata 1º de janeiro de 2026 como quinta: sai na véspera e desembarca segunda de manhã', () => {
     expect(weekday('2026-01-01')).toBe(4);
     const windows = listHolidayBridges('2026-01-01', '2026-01-04');
     expect(windows[0]).toMatchObject({
       holidayName: 'Confraternização Universal',
-      departureDate: '2026-01-01',
-      returnDate: '2026-01-04',
+      departureDate: '2025-12-31',
+      returnDate: '2026-01-05',
     });
   });
 
@@ -45,17 +48,54 @@ describe('pontes de feriado', () => {
     const corpusWindows = listHolidayBridges('2026-06-01', '2026-06-10');
     expect(corpusWindows).toContainEqual(expect.objectContaining({
       holidayName: 'Corpus Christi',
-      departureDate: '2026-06-04',
-      returnDate: '2026-06-07',
+      departureDate: '2026-06-03',
+      returnDate: '2026-06-08',
     }));
 
     const tuesday = addDays(easterDate(2026), -47);
     const carnival = listHolidayBridges(tuesday, tuesday);
     expect(carnival).toContainEqual(expect.objectContaining({
       holidayName: 'Carnaval (terça)',
-      departureDate: addDays(tuesday, -3),
-      returnDate: tuesday,
+      departureDate: addDays(tuesday, -4),
+      returnDate: addDays(tuesday, 1),
     }));
+  });
+
+  it('aceita quarta no fim da tarde e desembarque na segunda de manhã', () => {
+    const windows = listHolidayBridges('2026-01-01', '2026-01-04');
+    const bridge = windows[0];
+    if (!bridge) throw new Error('ponte de ano-novo ausente');
+    const fit = sampleOffer({
+      departureAt: '2025-12-31T18:40:00-03:00',
+      returnAt: '2026-01-04T22:10:00-03:00',
+      durationBackMinutes: 480,
+    });
+    const early = sampleOffer({
+      departureAt: '2025-12-31T14:00:00-03:00',
+      returnAt: '2026-01-05T08:00:00-03:00',
+    });
+    const lateLanding = sampleOffer({
+      departureAt: '2025-12-31T19:00:00-03:00',
+      returnAt: '2026-01-05T08:00:00-03:00',
+      durationBackMinutes: 300,
+    });
+    expect(matchesBridgeTrip(fit, bridge)).toBe(true);
+    expect(matchesBridgeTrip(early, bridge)).toBe(false);
+    expect(matchesBridgeTrip(lateLanding, bridge)).toBe(false);
+    const kept = applyOfferFilters([fit, early, lateLanding], sampleCriteria({
+      holidayBridgeOnly: true,
+      departureStart: '2026-01-01',
+      departureEnd: '2026-01-04',
+    }), windows);
+    expect(kept).toEqual([fit]);
+    const plan = buildSearchPlan(sampleCriteria({
+      holidayBridgeOnly: true,
+      departureStart: '2026-01-01',
+      departureEnd: '2026-01-31',
+      coastalOnly: false,
+      states: ['BA'],
+    }), sampleAirports());
+    expect(plan.months).toContain('2025-12');
   });
 
   it('ignora feriado fora de quinta, sexta, segunda e terça', () => {

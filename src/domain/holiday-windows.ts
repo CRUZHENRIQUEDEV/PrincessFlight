@@ -1,6 +1,10 @@
-// Versão: 1.0
+// Versão: 1.1
 import { addDays, weekday } from './iso-date';
-import type { HolidayWindow } from './types';
+import type { FlightOffer, HolidayWindow } from './types';
+
+/** Ida no fim da tarde da véspera. Desembarque só vale de manhã. */
+const EVENING_HOUR = 16;
+const MORNING_HOUR = 12;
 
 interface Holiday {
   date: string;
@@ -19,15 +23,30 @@ const FIXED_HOLIDAYS: ReadonlyArray<{ monthDay: string; name: string }> = [
 ];
 
 /**
- * Ponte pedida: feriado na quinta (inclui sexta), na sexta,
- * na segunda (sai na sexta) e na terça (sai no sábado, segunda é ponte).
+ * A ida é na véspera, no fim da tarde. O desembarque é no máximo na manhã
+ * do dia seguinte ao último dia parado.
+ * Quinta: quarta à noite até segunda de manhã. Sexta: quinta à noite até segunda.
+ * Segunda: sexta à noite até terça. Terça (segunda é ponte): sexta à noite até quarta.
  */
 const BRIDGE_BY_WEEKDAY: Record<number, (holiday: Holiday) => HolidayWindow> = {
-  1: (holiday) => toWindow(holiday, addDays(holiday.date, -3), holiday.date),
-  2: (holiday) => toWindow(holiday, addDays(holiday.date, -3), holiday.date),
-  4: (holiday) => toWindow(holiday, holiday.date, addDays(holiday.date, 3)),
-  5: (holiday) => toWindow(holiday, holiday.date, addDays(holiday.date, 2)),
+  1: (holiday) => toWindow(holiday, addDays(holiday.date, -3), addDays(holiday.date, 1)),
+  2: (holiday) => toWindow(holiday, addDays(holiday.date, -4), addDays(holiday.date, 1)),
+  4: (holiday) => toWindow(holiday, addDays(holiday.date, -1), addDays(holiday.date, 4)),
+  5: (holiday) => toWindow(holiday, addDays(holiday.date, -1), addDays(holiday.date, 3)),
 };
+
+/** A ida sai na véspera, a partir do fim da tarde, e o desembarque cai na manhã do limite. */
+export function matchesBridgeTrip(
+  offer: Pick<FlightOffer, 'departureAt' | 'returnAt' | 'durationBackMinutes'>,
+  window: HolidayWindow,
+): boolean {
+  if (!offer.returnAt) return false;
+  const outbound = saoPauloClock(offer.departureAt);
+  if (!outbound || outbound.day !== window.departureDate || outbound.hour < EVENING_HOUR) return false;
+  const back = saoPauloClock(landingMoment(offer.returnAt, offer.durationBackMinutes ?? null));
+  if (!back || back.day !== window.returnDate || back.hour >= MORNING_HOUR) return false;
+  return true;
+}
 
 export function easterDate(year: number): string {
   const a = year % 19;
@@ -91,4 +110,32 @@ function toWindow(holiday: Holiday, departureDate: string, returnDate: string): 
     departureDate,
     returnDate,
   };
+}
+
+function landingMoment(returnAt: string, durationMinutes: number | null): string {
+  if (durationMinutes === null || durationMinutes <= 0) return returnAt;
+  const start = Date.parse(returnAt);
+  if (Number.isNaN(start)) return returnAt;
+  return new Date(start + durationMinutes * 60_000).toISOString();
+}
+
+function saoPauloClock(iso: string): { day: string; hour: number } | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  const year = value('year');
+  const month = value('month');
+  const day = value('day');
+  let hour = Number(value('hour'));
+  if (!year || !month || !day || !Number.isFinite(hour)) return null;
+  if (hour === 24) hour = 0;
+  return { day: `${year}-${month}-${day}`, hour };
 }
