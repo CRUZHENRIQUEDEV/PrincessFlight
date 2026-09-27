@@ -1,5 +1,6 @@
-// Versão: 1.8
+// Versão: 1.9
 import { placeOf } from '../data/places';
+import { returnSpan } from './date-range';
 import { searchOrigins } from './criteria';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
@@ -80,9 +81,12 @@ function originLabel(search: SavedSearch, airports: readonly Airport[]): string 
 }
 
 function dateLabel(search: SavedSearch): string {
-  const { departureStart, departureEnd } = search.criteria;
-  if (!departureStart && !departureEnd) return 'qualquer data';
-  return `${departureStart || '—'} até ${departureEnd || '—'}`;
+  const { departureStart, departureEnd, tripLengthDays } = search.criteria;
+  const ida = !departureStart && !departureEnd ? 'qualquer data' : `${departureStart || '—'} até ${departureEnd || '—'}`;
+  if (!tripLengthDays) return ida;
+  const span = returnSpan(departureStart, departureEnd, tripLengthDays);
+  const volta = span ? ` · volta ${span.returnStart} até ${span.returnEnd}` : '';
+  return `${ida} · ${tripLengthDays} dias${volta}`;
 }
 
 function scopeLabel(search: SavedSearch): string {

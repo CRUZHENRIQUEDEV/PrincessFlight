@@ -1,4 +1,4 @@
-// Versão: 2.0
+// Versão: 2.1
 import { placeOf } from '../data/places';
 import { parseAlertRules, type AlertRules, type AlertRulesInput } from '../domain/alert-rules';
 import { parseCriteria, searchOrigins, type CriteriaInput } from '../domain/criteria';
@@ -73,6 +73,7 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   setChecked(doc, 'sort-price', criteria.offerSort === 'price');
   setChecked(doc, 'sort-date', criteria.offerSort === 'date');
   setChecked(doc, 'sort-discount', criteria.offerSort === 'discount');
+  setValue(doc, 'trip-days', criteria.tripLengthDays === null ? '' : String(criteria.tripLengthDays));
   writeDateRange(doc, criteria.departureStart, criteria.departureEnd);
   setValue(doc, 'price-min', criteria.priceMin === null ? '' : String(criteria.priceMin));
   setValue(doc, 'price-max', criteria.priceMax === null ? '' : String(criteria.priceMax));

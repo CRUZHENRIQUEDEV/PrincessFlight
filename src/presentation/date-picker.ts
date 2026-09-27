@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import {
   cursorFromIso,
   formatDay,
@@ -6,10 +6,12 @@ import {
   monthMatrix,
   monthTitle,
   pickRangeDay,
+  returnSpan,
   shiftMonth,
   type MonthCursor,
   type RangeEdge,
 } from '../domain/date-range';
+import { normalizeTripLength } from '../domain/filters';
 import { tomorrowIso } from '../domain/iso-date';
 
 const WEEKDAYS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
@@ -29,6 +31,7 @@ export function bindDatePicker(doc: Document): void {
   doc.getElementById('date-reset')?.addEventListener('click', () => reset(doc, months, state));
   doc.getElementById('date-done')?.addEventListener('click', () => close(popover, open));
   months.addEventListener('click', (event) => choose(doc, months, state, event));
+  doc.getElementById('trip-days')?.addEventListener('input', () => syncDatePicker(doc));
   doc.addEventListener('click', (event) => {
     if (!(event.target instanceof Node) || popover.hidden) return;
     if (popover.contains(event.target) || open.contains(event.target)) return;
@@ -43,6 +46,24 @@ export function syncDatePicker(doc: Document): void {
   const start = value(doc, 'date-start');
   const end = value(doc, 'date-end');
   open.textContent = start || end ? formatRangeLabel(start, end) : 'Escolha as datas';
+  const hint = doc.getElementById('return-hint');
+  if (hint) hint.textContent = returnHint(start, end, readTripDays(doc));
+}
+
+function returnHint(start: string, end: string, days: number | null): string {
+  if (days === null) return 'Volta em qualquer data.';
+  const span = returnSpan(start, end, days);
+  if (!span) return `Volta ${days} dias depois da ida.`;
+  if (span.returnStart === span.returnEnd) return `Volta em ${formatDay(span.returnStart)}`;
+  return `Volta de ${formatDay(span.returnStart)} a ${formatDay(span.returnEnd)}`;
+}
+
+function readTripDays(doc: Document): number | null {
+  const raw = value(doc, 'trip-days').trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed)) return null;
+  return normalizeTripLength(parsed);
 }
 
 function toggle(

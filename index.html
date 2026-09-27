@@ -1,4 +1,4 @@
-<!-- Versão: 3.7 -->
+<!-- Versão: 3.8 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -46,6 +46,7 @@
             <div class="date-field">
               <span class="date-field__label">Datas da ida</span>
               <button id="date-open" class="date-open" type="button" aria-haspopup="dialog" aria-expanded="false">Escolha as datas</button>
+              <p id="return-hint" class="date-field__return">Volta em qualquer data.</p>
               <input id="date-start" type="hidden" />
               <input id="date-end" type="hidden" />
               <div id="date-popover" class="date-popover" hidden role="dialog" aria-label="Intervalo de datas">
@@ -64,6 +65,10 @@
               <label><input id="scope-nacional" type="radio" name="scope" value="nacional" checked /> Nacional</label>
               <label><input id="scope-internacional" type="radio" name="scope" value="internacional" /> Internacional</label>
             </div>
+            <label class="toolbar__interval">
+              Dias da viagem
+              <input id="trip-days" type="number" min="1" max="60" step="1" inputmode="numeric" placeholder="—" title="A volta cai esse tanto de dias depois da ida." />
+            </label>
             <label class="toolbar__interval">
               Próxima rodada (min)
               <input id="repeat-minutes" type="number" min="1" step="1" value="15" />

@@ -1,4 +1,4 @@
-/* Versão: 4.2 */
+/* Versão: 4.3 */
 :root {
   --bg: #100e11;
   --ink: #efedf0;
@@ -229,6 +229,7 @@ input, select {
 
 .date-field { position: relative; display: grid; gap: 0.3rem; align-content: end; }
 .date-field__label { font-size: 0.75rem; color: var(--muted); }
+.date-field__return { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.75rem; }
 .date-open {
   min-height: 36px;
   padding: 0.4rem 0.6rem;

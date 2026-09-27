@@ -1,4 +1,4 @@
-// Versão: 1.0
+// Versão: 1.1
 import { addDays, weekday } from './iso-date';
 
 export type RangeEdge = 'start' | 'end';
@@ -47,6 +47,18 @@ export function formatRangeLabel(start: string, end: string): string {
   if (!start && !end) return 'Qualquer data';
   if (start && end) return `${formatDay(start)} – ${formatDay(end)}`;
   return formatDay(start || end);
+}
+
+/** Volta = ida mais a quantidade de dias. Com intervalo de ida, a volta acompanha os dois extremos. */
+export function returnSpan(
+  departureStart: string,
+  departureEnd: string,
+  days: number,
+): { returnStart: string; returnEnd: string } | null {
+  if (!departureStart || !Number.isInteger(days) || days < 1) return null;
+  const returnStart = addDays(departureStart, days);
+  const returnEnd = departureEnd ? addDays(departureEnd, days) : returnStart;
+  return { returnStart, returnEnd };
 }
 
 export function formatDay(iso: string): string {
