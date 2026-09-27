@@ -1,8 +1,8 @@
-// Versão: 3.2
+// Versão: 3.3
 import { AIRPORTS } from '../data/airports';
 import { matchPlaceCode, placeChoices, placeOf } from '../data/places';
 import { createDefaultAlertRules, offersForAlert, parseAlertRules } from '../domain/alert-rules';
-import { createDefaultCriteria, parseCriteria, type ParsedCriteria } from '../domain/criteria';
+import { createDefaultCriteria, parseCriteria, rollDatesToTomorrow, type ParsedCriteria } from '../domain/criteria';
 import { buildDestinationHistory } from '../domain/destination-history';
 import { calendarDay, todayIso } from '../domain/iso-date';
 import { presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../domain/present-offers';
@@ -20,14 +20,14 @@ import {
 } from '../domain/saved-search';
 import { buildSearchPlan } from '../domain/search-plan';
 import { collectCatalog, mergeOffers } from '../domain/offer-archive';
-import type { FlightOffer } from '../domain/types';
+import type { FlightOffer, SearchCriteria } from '../domain/types';
 import { MemoryFlightStore, type FlightStore, type StoredSettings } from '../infrastructure/flight-store';
 import { IndexedDbFlightStore } from '../infrastructure/indexed-db-store';
 import { judgeOffer, departureMonth } from '../domain/offer-check';
 import { loadDestinationNotes, type DestinationNotes } from '../infrastructure/destination-notes';
 import { TravelpayoutsClient } from '../infrastructure/travelpayouts-client';
 import { createAlertSound } from './alert-sound';
-import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readSettings, readToken, syncScope } from './form-controller';
+import { bindShowToken, fillForm, populateLocations, readAlertInput, readCriteriaInput, readSettings, readToken, syncScope, writeDateRange } from './form-controller';
 import { bindDatePicker } from './date-picker';
 import { formatAlertMessage, formatPrice, formatWhen } from './format';
 import { createPreferenceMemory } from './preference-memory';
@@ -146,6 +146,7 @@ export async function startApp(doc: Document = document): Promise<void> {
   });
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState === 'hidden') void memory.flush();
+    else rollOpenDates();
   });
   byId(doc, 'monitor-button').addEventListener('click', () => {
     remember();
@@ -266,12 +267,37 @@ export async function startApp(doc: Document = document): Promise<void> {
     searches = withSearch(searches, next);
     if (id === activeId) offers = next.offers;
     if (update.offers) rememberOffers(update.offers);
+    if (update.criteria && id === activeId && next.mode === 'filters') {
+      writeDateRange(doc, update.criteria.departureStart, update.criteria.departureEnd);
+    }
     render();
-    if ('offers' in update || update.running === false || 'keepAlive' in update) void persist(id);
+    if ('offers' in update || update.criteria || update.running === false || 'keepAlive' in update) void persist(id);
+  }
+
+  function rollOpenDates(): void {
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const search of [...searches]) {
+      if (search.mode !== 'filters') continue;
+      const dates = rollDatesToTomorrow(search.criteria.departureStart, search.criteria.departureEnd);
+      if (dates.departureStart === search.criteria.departureStart && dates.departureEnd === search.criteria.departureEnd) continue;
+      changed = true;
+      searches = withSearch(searches, {
+        ...search,
+        criteria: { ...search.criteria, ...dates },
+        updatedAt: now,
+      });
+      void persist(search.id);
+    }
+    const current = activeSearch();
+    if (changed && current?.mode === 'filters') {
+      writeDateRange(doc, current.criteria.departureStart, current.criteria.departureEnd);
+    }
   }
 
   function syncActiveFromForm(): void {
-    const parsed = parseCriteria(readCriteriaInput(doc));
+    const raw = readCriteriaInput(doc);
+    const parsed = parseCriteria(raw);
     const alert = parseAlertRules(readAlertInput(doc));
     if (parsed.fieldError || alert.fieldError) return;
     const current = searches.find((search) => search.id === activeId);
@@ -285,6 +311,9 @@ export async function startApp(doc: Document = document): Promise<void> {
       });
       paintList();
       return;
+    }
+    if (parsed.criteria.departureStart !== raw.departureStart || parsed.criteria.departureEnd !== raw.departureEnd) {
+      writeDateRange(doc, parsed.criteria.departureStart, parsed.criteria.departureEnd);
     }
     searches = withSearch(searches, {
       ...current,
@@ -688,7 +717,7 @@ async function loadSearches(store: FlightStore, saved: StoredSettings | null): P
   const stored = await store.getSearches();
   const now = new Date().toISOString();
   const mapped = stored.length > 0
-    ? stored.map((search) => ({
+    ? stored.map((search) => withRolledDates({
       ...search,
       running: false,
       progress: null,
@@ -698,7 +727,12 @@ async function loadSearches(store: FlightStore, saved: StoredSettings | null): P
   const origin = saved?.criteria.originIata ?? mapped.find((search) => search.mode === 'filters')?.criteria.originIata ?? 'BSB';
   const ensured = ensurePinnedSearches(mapped, origin, now);
   for (const search of ensured) {
-    if (!stored.some((item) => item.id === search.id)) await store.saveSearch(search);
+    const previous = stored.find((item) => item.id === search.id);
+    const datesChanged = previous !== undefined && (
+      previous.criteria.departureStart !== search.criteria.departureStart
+      || previous.criteria.departureEnd !== search.criteria.departureEnd
+    );
+    if (!previous || datesChanged) await store.saveSearch(search);
   }
   return ensured;
 }
@@ -706,13 +740,22 @@ async function loadSearches(store: FlightStore, saved: StoredSettings | null): P
 async function firstSearch(store: FlightStore, saved: StoredSettings | null, now: string): Promise<SavedSearch> {
   const created = createSavedSearch(
     'Pesquisa 1',
-    saved?.criteria ?? createDefaultCriteria(),
+    withRolledCriteria(saved?.criteria ?? createDefaultCriteria()),
     saved?.alertRules ?? createDefaultAlertRules(),
     saved?.updatedAt ?? now,
   );
   created.offers = await store.getOffers();
   created.lastStatus = 'Pronta para buscar.';
   return created;
+}
+
+function withRolledDates(search: SavedSearch): SavedSearch {
+  if (search.mode !== 'filters') return search;
+  return { ...search, criteria: withRolledCriteria(search.criteria) };
+}
+
+function withRolledCriteria(criteria: SearchCriteria): SearchCriteria {
+  return { ...criteria, ...rollDatesToTomorrow(criteria.departureStart, criteria.departureEnd) };
 }
 
 function pickActive(searches: readonly SavedSearch[], activeSearchId: string | undefined): string {

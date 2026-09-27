@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
 import { groupOffersByDestination, presentAnywhereOffers, presentFavoriteOffers, presentOffers } from '../src/domain/present-offers';
-import { parseAirlines, parseCriteria } from '../src/domain/criteria';
+import { parseAirlines, parseCriteria, rollDatesToTomorrow } from '../src/domain/criteria';
 import type { Airport, FlightOffer, HolidayWindow } from '../src/domain/types';
 import { sampleAirports, sampleCriteria, sampleOffer } from './fixtures';
 
@@ -168,6 +168,43 @@ describe('critério', () => {
     expect(parsed.criteria.priceMax).toBe(1500);
     expect(parsed.criteria.repeatEveryMinutes).toBe(0);
     expect(parsed.fieldError).toMatch(/2 segundos/);
+  });
+
+  it('leva a data vencida para amanhã e conserva o fim que ainda vale', () => {
+    expect(rollDatesToTomorrow('2026-09-01', '2026-10-15', '2026-09-27')).toEqual({
+      departureStart: '2026-09-28',
+      departureEnd: '2026-10-15',
+    });
+    expect(rollDatesToTomorrow('2026-09-01', '2026-09-20', '2026-09-27')).toEqual({
+      departureStart: '2026-09-28',
+      departureEnd: '2026-09-28',
+    });
+    expect(rollDatesToTomorrow('2026-11-01', '2026-11-30', '2026-09-27')).toEqual({
+      departureStart: '2026-11-01',
+      departureEnd: '2026-11-30',
+    });
+    const parsed = parseCriteria({
+      originIata: 'GRU',
+      scope: 'nacional',
+      regions: [],
+      states: [],
+      coastalOnly: true,
+      departureStart: '2026-09-01',
+      departureEnd: '2026-10-15',
+      tripLengthDays: '',
+      holidayBridgeOnly: false,
+      priceMin: '',
+      priceMax: '',
+      bargainRatioPercent: '70',
+      airlinesText: '',
+      delayBetweenCallsSeconds: '5',
+      repeatEveryMinutes: '0',
+      bargainsOnly: false,
+      includeRegularPrices: true,
+      offerSort: 'price',
+    }, '2026-09-27');
+    expect(parsed.criteria.departureStart).toBe('2026-09-28');
+    expect(parsed.criteria.departureEnd).toBe('2026-10-15');
   });
 });
 

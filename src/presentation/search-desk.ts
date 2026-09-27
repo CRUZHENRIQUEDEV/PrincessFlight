@@ -1,12 +1,12 @@
-// Versão: 1.8
+// Versão: 1.9
 import { AIRPORTS } from '../data/airports';
 import { placeOf } from '../data/places';
 import { freshRouteOffers } from '../domain/known-offers';
 import { mergeOffers } from '../domain/offer-archive';
-import { validateSearch } from '../domain/criteria';
+import { rollDatesToTomorrow, validateSearch } from '../domain/criteria';
 import { refreshEveryMinutes, rescheduleRound, type SavedSearch } from '../domain/saved-search';
 import { buildSearchPlan } from '../domain/search-plan';
-import type { FlightOffer } from '../domain/types';
+import type { FlightOffer, SearchCriteria } from '../domain/types';
 import { delay, isAbortError } from '../infrastructure/delay';
 import { runAnywhereRound } from '../infrastructure/anywhere-runner';
 import { runFavoriteRound } from '../infrastructure/favorites-runner';
@@ -16,6 +16,7 @@ import { describeConsulting, describeRoute } from './search-feedback';
 
 export interface SearchUpdate {
   offers?: FlightOffer[];
+  criteria?: SearchCriteria;
   lastStatus?: string;
   running?: boolean;
   keepAlive?: boolean;
@@ -61,8 +62,10 @@ async function start(
   id: string,
   mode: 'once' | 'monitor',
 ): Promise<void> {
-  const search = deps.getSearch(id);
-  if (!search) return;
+  const loaded = deps.getSearch(id);
+  if (!loaded) return;
+  const search = withFutureDates(loaded);
+  if (search !== loaded) deps.patch(id, { criteria: search.criteria });
   if (search.mode === 'favorites' && search.favoriteDestinations.length === 0) {
     const message = 'Adicione um destino favorito. A busca pega a ida e a volta mais baratas, em qualquer data.';
     deps.patch(id, { lastStatus: message, running: false });
@@ -91,6 +94,15 @@ async function start(
     if (controllers.get(id) === controller) controllers.delete(id);
     if (!stale() && deps.getSearch(id)?.running) deps.patch(id, { running: false, progress: null });
   }
+}
+
+function withFutureDates(search: SavedSearch): SavedSearch {
+  if (search.mode !== 'filters') return search;
+  const dates = rollDatesToTomorrow(search.criteria.departureStart, search.criteria.departureEnd);
+  if (dates.departureStart === search.criteria.departureStart && dates.departureEnd === search.criteria.departureEnd) {
+    return search;
+  }
+  return { ...search, criteria: { ...search.criteria, ...dates } };
 }
 
 function refusalMessage(search: SavedSearch, token: string): string | null {
@@ -211,11 +223,13 @@ async function oneRound(
 ): Promise<'continue' | 'stop'> {
   if (search.mode === 'favorites') return favoriteRound(deps, search, signal, stale, closing);
   if (search.mode === 'anywhere') return anywhereRound(deps, search, signal, stale, closing);
-  const plan = buildSearchPlan(search.criteria, AIRPORTS);
-  const error = validateSearch(search.criteria, plan, deps.readToken());
+  const current = withFutureDates(search);
+  if (current !== search) deps.patch(search.id, { criteria: current.criteria });
+  const plan = buildSearchPlan(current.criteria, AIRPORTS);
+  const error = validateSearch(current.criteria, plan, deps.readToken());
   if (error) return halt(deps, search.id, error, true, stale);
   const result = await runSearch({
-    criteria: search.criteria,
+    criteria: current.criteria,
     airports: AIRPORTS,
     token: deps.readToken(),
     provider: deps.provider,

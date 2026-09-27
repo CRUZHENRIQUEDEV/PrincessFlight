@@ -1,4 +1,4 @@
-// Versão: 1.8
+// Versão: 1.9
 import { parseAlertRules, type AlertRules, type AlertRulesInput } from '../domain/alert-rules';
 import { parseCriteria, type CriteriaInput } from '../domain/criteria';
 import { refreshEveryMinutes } from '../domain/saved-search';
@@ -71,8 +71,7 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   setChecked(doc, 'sort-price', criteria.offerSort === 'price');
   setChecked(doc, 'sort-date', criteria.offerSort === 'date');
   setChecked(doc, 'sort-discount', criteria.offerSort === 'discount');
-  setValue(doc, 'date-start', criteria.departureStart);
-  setValue(doc, 'date-end', criteria.departureEnd);
+  writeDateRange(doc, criteria.departureStart, criteria.departureEnd);
   setValue(doc, 'price-min', criteria.priceMin === null ? '' : String(criteria.priceMin));
   setValue(doc, 'price-max', criteria.priceMax === null ? '' : String(criteria.priceMax));
   setValue(doc, 'bargain-ratio', String(Math.round(criteria.bargainRatio * 100)));
@@ -83,6 +82,11 @@ export function fillForm(doc: Document, token: string, criteria: SearchCriteria,
   checkNamed(doc, 'state', new Set(criteria.states));
   if (rules) fillAlertRules(doc, rules);
   syncScope(doc);
+}
+
+export function writeDateRange(doc: Document, start: string, end: string): void {
+  setValue(doc, 'date-start', start);
+  setValue(doc, 'date-end', end);
   syncDatePicker(doc);
 }
 

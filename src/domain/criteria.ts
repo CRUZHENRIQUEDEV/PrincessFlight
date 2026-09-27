@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 import { addDays, todayIso, tomorrowIso } from './iso-date';
 import { normalizeTripLength } from './filters';
 import type { OfferSort, Region, SearchCriteria, TripScope } from './types';
@@ -64,7 +64,21 @@ export function parseAirlines(text: string): string[] {
   return [...new Set(codes)];
 }
 
-export function parseCriteria(input: CriteriaInput): ParsedCriteria {
+/** Data anterior a amanhã avança para amanhã. O fim do intervalo só muda se também já passou. */
+export function rollDatesToTomorrow(
+  start: string,
+  end: string,
+  today = todayIso(),
+): { departureStart: string; departureEnd: string } {
+  if (!start || !end) return { departureStart: start, departureEnd: end };
+  const minimum = tomorrowIso(today);
+  return {
+    departureStart: start < minimum ? minimum : start,
+    departureEnd: end < minimum ? minimum : end,
+  };
+}
+
+export function parseCriteria(input: CriteriaInput, today = todayIso()): ParsedCriteria {
   const priceMin = optionalNumber(input.priceMin);
   const priceMax = optionalNumber(input.priceMax);
   const bargain = optionalNumber(input.bargainRatioPercent);
@@ -72,6 +86,7 @@ export function parseCriteria(input: CriteriaInput): ParsedCriteria {
   const repeat = optionalInteger(input.repeatEveryMinutes);
   const tripLength = optionalInteger(input.tripLengthDays);
   const fieldError = firstFieldError(priceMin, priceMax, bargain, delay, repeat);
+  const dates = rollDatesToTomorrow(input.departureStart, input.departureEnd, today);
   return {
     criteria: {
       originIata: input.originIata.trim().toUpperCase(),
@@ -79,8 +94,8 @@ export function parseCriteria(input: CriteriaInput): ParsedCriteria {
       regions: parseRegions(input.regions),
       states: input.states.map((state) => state.toUpperCase()),
       coastalOnly: input.coastalOnly,
-      departureStart: input.departureStart,
-      departureEnd: input.departureEnd,
+      departureStart: dates.departureStart,
+      departureEnd: dates.departureEnd,
       tripLengthDays: normalizeTripLength(tripLength.value),
       holidayBridgeOnly: input.holidayBridgeOnly,
       priceMin: priceMin.value,
