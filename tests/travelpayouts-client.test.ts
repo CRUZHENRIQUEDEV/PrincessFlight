@@ -1,4 +1,4 @@
-// Versão: 1.3
+// Versão: 1.4
 import { describe, expect, it, vi } from 'vitest';
 import { anywhereEndpoint, buildAnywhereUrl, buildPricesForDatesUrl, buildCalendarUrl, buildCheapUrl, cacheCityCode, calendarEndpoint, cheapEndpoint, parseAnywhereBody, parseCalendarBody, parseCheapBody, parsePricesBody, TravelpayoutsClient } from '../src/infrastructure/travelpayouts-client';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
@@ -71,6 +71,7 @@ describe('cliente Travelpayouts', () => {
   it('monta a URL em real, ida e volta', () => {
     const url = new URL(buildPricesForDatesUrl(query, 'https://api.travelpayouts.com/aviasales/v3/prices_for_dates'));
     expect(url.searchParams.get('currency')).toBe('brl');
+    expect(url.searchParams.get('market')).toBe('br');
     expect(url.searchParams.get('one_way')).toBe('false');
     expect(url.searchParams.get('origin')).toBe('GRU');
     expect(url.searchParams.get('token')).toBeNull();
@@ -91,6 +92,7 @@ describe('cliente Travelpayouts', () => {
     const url = new URL(buildCalendarUrl(query, endpoint));
     expect(url.pathname).toBe('/v1/prices/calendar');
     expect(url.searchParams.get('depart_date')).toBe('2026-11');
+    expect(url.searchParams.get('market')).toBe('br');
     const tickets = parseCalendarBody({
       success: true,
       currency: 'brl',

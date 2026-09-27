@@ -1,4 +1,4 @@
-// Versão: 1.9
+// Versão: 2.0
 import { calendarDay } from '../domain/iso-date';
 import { searchDateFromLink } from '../domain/offer';
 import type { RawTicket } from '../domain/types';
@@ -56,6 +56,7 @@ export function buildPricesForDatesUrl(query: RouteMonthQuery, endpoint: string,
     limit: String(regular ? REGULAR_PAGE_SIZE : CHEAPEST_PAGE_SIZE),
     page: String(page),
     currency: 'brl',
+    market: 'br',
     direct: 'false',
     unique: 'false',
   });
@@ -100,6 +101,7 @@ export function buildCalendarUrl(query: RouteMonthQuery, endpoint: string): stri
     depart_date: query.month,
     calendar_type: 'departure_date',
     currency: 'brl',
+    market: 'br',
   });
   return `${endpoint}?${params.toString()}`;
 }
