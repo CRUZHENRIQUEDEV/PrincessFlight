@@ -1,4 +1,4 @@
-// Versão: 1.8
+// Versão: 1.9
 import {
   CategoryScale,
   Chart,
@@ -12,6 +12,7 @@ import { placeOf } from '../data/places';
 import { airlineBookingLink } from '../domain/airline-link';
 import type { DestinationHistory } from '../domain/destination-history';
 import { priceFoundAt } from '../domain/offer';
+import { anyDateWarning } from '../domain/filters';
 import { selfConnectWarning } from '../domain/self-connect';
 import { distanceKm, estimateBlockMinutes, legLabel } from '../domain/flight-path';
 import type { OfferVerdictStatus } from '../domain/offer-check';
@@ -122,12 +123,21 @@ function sheet(
 }
 
 function connectWarning(offer: FlightOffer): HTMLElement | null {
-  if (!offer.selfConnect) return null;
+  const text = sheetWarning(offer);
+  if (!text) return null;
   const line = document.createElement('p');
   line.className = 'offer-sheet__warn';
-  const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
-  line.textContent = selfConnectWarning(hub);
+  line.textContent = text;
   return line;
+}
+
+function sheetWarning(offer: FlightOffer): string | null {
+  if (offer.selfConnect) {
+    const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+    return selfConnectWarning(hub);
+  }
+  if (offer.anyDate) return anyDateWarning();
+  return null;
 }
 
 function routeBlock(offer: FlightOffer, airports: readonly Airport[]): HTMLElement {

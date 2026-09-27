@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import { describe, expect, it } from 'vitest';
 import { formatPrice } from '../src/presentation/format';
 import { describeConsulting, describeRoute, formatMonthLabel } from '../src/presentation/search-feedback';
@@ -28,7 +28,17 @@ describe('relato da busca', () => {
       totalOffers: 4,
       cheapest: null,
       error: null,
-    })).toBe('4 de 16 · Lisboa · dez/2026 · nenhum preço guardado neste mês; a API só devolve tarifas que alguém já buscou · 4 ofertas no total');
+    })).toBe('4 de 16 · Lisboa · dez/2026 · nenhum preço no cache do Brasil, nem neste mês nem em outra data · 4 ofertas no total');
+    expect(describeRoute({
+      completedCalls: 5,
+      totalCalls: 16,
+      city: 'Madri',
+      month: '2026-11',
+      foundNow: 1,
+      totalOffers: 5,
+      cheapest: sampleOffer({ price: 3200, airline: 'TP', currency: 'BRL', anyDate: true, destination: 'MAD' }),
+      error: null,
+    })).toBe(`5 de 16 · Madri · nov/2026 · preço de outra data, o único no cache do Brasil · ${formatPrice(3200, 'BRL')} (TAP (TP)) · 5 ofertas no total`);
     expect(describeRoute({
       completedCalls: 1,
       totalCalls: 2,

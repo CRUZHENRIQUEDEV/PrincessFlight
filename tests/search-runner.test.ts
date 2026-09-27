@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import { describe, expect, it } from 'vitest';
 import { runSearch } from '../src/infrastructure/search-runner';
 import { TravelpayoutsError } from '../src/infrastructure/travelpayouts-error';
@@ -66,6 +66,51 @@ describe('fila de busca', () => {
       freshForMs: 60 * 60 * 1000,
     });
     expect(calls).toEqual(['SSA', 'FOR']);
+  });
+
+  it('quando o mês vem vazio, guarda o preço de qualquer data', async () => {
+    const calls: string[] = [];
+    const provider: FlightPriceProvider = {
+      async searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+        calls.push(`mes:${query.destination}`);
+        return [];
+      },
+      async searchCalendarMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+        calls.push(`cal:${query.destination}`);
+        return [];
+      },
+      async searchCheapest(query) {
+        calls.push(`barato:${query.destination}`);
+        return { ...ticket(query.destination), departureAt: '2026-12-02T10:00:00-03:00' };
+      },
+    };
+    const result = await runSearch({
+      ...options(provider),
+      criteria: sampleCriteria({ states: ['BA'] }),
+    });
+    expect(calls).toEqual(['mes:SSA', 'cal:SSA', 'barato:SSA']);
+    expect(result.requestCount).toBe(3);
+    expect(result.offers[0]?.anyDate).toBe(true);
+    expect(result.offers[0]?.destination).toBe('SSA');
+  });
+
+  it('não pede outra data quando o mês já tem preço', async () => {
+    let cheapCalls = 0;
+    const provider: FlightPriceProvider = {
+      async searchRouteMonth(query: RouteMonthQuery): Promise<RawTicket[]> {
+        return [ticket(query.destination)];
+      },
+      async searchCheapest() {
+        cheapCalls += 1;
+        return null;
+      },
+    };
+    const result = await runSearch({
+      ...options(provider),
+      criteria: sampleCriteria({ states: ['BA'] }),
+    });
+    expect(cheapCalls).toBe(0);
+    expect(result.offers[0]?.anyDate).toBeUndefined();
   });
 
   it('para na primeira falha de token', async () => {

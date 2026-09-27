@@ -1,4 +1,4 @@
-// Versão: 1.1
+// Versão: 1.2
 import { describe, expect, it } from 'vitest';
 import { applyOfferFilters, selectDestinations } from '../src/domain/filters';
 import { median, markBargains } from '../src/domain/price-anomaly';
@@ -91,6 +91,10 @@ describe('filtros', () => {
     expect(holiday).toEqual([]);
     const anyDate = applyOfferFilters(offers, sampleCriteria({ departureStart: '', departureEnd: '' }), []);
     expect(anyDate.map((offer) => offer.id)).toEqual(['in', 'out', 'dear', 'other']);
+    const outside = sampleOffer({ id: 'fora', anyDate: true, departureAt: '2026-12-02T10:00:00-03:00', price: 1800 });
+    const expensive = sampleOffer({ id: 'caro-fora', anyDate: true, price: 9000 });
+    const kept = applyOfferFilters([outside, expensive], sampleCriteria({ priceMax: 2000 }), []);
+    expect(kept.map((offer) => offer.id)).toEqual(['fora']);
   });
 });
 

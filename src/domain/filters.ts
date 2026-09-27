@@ -1,4 +1,4 @@
-// Versão: 1.3
+// Versão: 1.4
 import { matchesBridgeTrip } from './holiday-windows';
 import { calendarDay, daysBetween } from './iso-date';
 import type { Airport, FlightOffer, HolidayWindow, SearchCriteria } from './types';
@@ -15,13 +15,24 @@ export function applyOfferFilters(
   criteria: SearchCriteria,
   windows: readonly HolidayWindow[],
 ): FlightOffer[] {
-  return offers.filter((offer) =>
-    matchesDate(offer, criteria)
+  return offers.filter((offer) => keepsOffer(offer, criteria, windows));
+}
+
+/** O mês veio vazio. Este preço é o único do cache e pode cair fora do período. */
+export function anyDateWarning(): string {
+  return 'Único preço no cache do Aviasales Brasil, em outra data. Não segue o período desta pesquisa.';
+}
+
+function keepsOffer(
+  offer: FlightOffer,
+  criteria: SearchCriteria,
+  windows: readonly HolidayWindow[],
+): boolean {
+  if (!matchesPrice(offer, criteria) || !matchesAirline(offer, criteria)) return false;
+  if (offer.anyDate) return true;
+  return matchesDate(offer, criteria)
     && matchesTripLength(offer, criteria.tripLengthDays)
-    && matchesHoliday(offer, criteria, windows)
-    && matchesPrice(offer, criteria)
-    && matchesAirline(offer, criteria),
-  );
+    && matchesHoliday(offer, criteria, windows);
 }
 
 function matchesDestination(

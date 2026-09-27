@@ -1,4 +1,4 @@
-// Versão: 1.8
+// Versão: 1.9
 
 export type Region = 'norte' | 'nordeste' | 'centro-oeste' | 'sudeste' | 'sul' | 'internacional';
 
@@ -80,6 +80,8 @@ export interface FlightOffer {
   isBargain: boolean;
   referencePrice: number | null;
   gapRatio: number | null;
+  /** Preço único do cache, em qualquer data, quando o mês pedido veio vazio. */
+  anyDate?: boolean;
   selfConnect?: SelfConnect;
 }
 

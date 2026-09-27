@@ -1,4 +1,4 @@
-// Versão: 1.5
+// Versão: 1.6
 import { placeOf } from '../data/places';
 import type { Airport, FlightOffer } from './types';
 import type { SavedSearch } from './saved-search';
@@ -54,7 +54,14 @@ export function buildSearchBrief(
       value: 'Uma consulta ao cache, qualquer destino e qualquer data. A lista começa pelo menor preço. Rota que ninguém buscou não aparece.',
     });
   } else {
-    lines.splice(5, 0, { label: 'Datas', value: dateLabel(search) }, { label: 'Abrangência', value: scopeLabel(search) });
+    lines.splice(5, 0,
+      { label: 'Datas', value: dateLabel(search) },
+      { label: 'Abrangência', value: scopeLabel(search) },
+      {
+        label: 'Como busca',
+        value: 'Cache do Aviasales Brasil. Se o mês estiver vazio, mostra o único preço de qualquer data.',
+      },
+    );
   }
   return {
     title: search.name,

@@ -1,5 +1,6 @@
-// Versão: 1.7
+// Versão: 1.8
 import { placeOf } from '../data/places';
+import { anyDateWarning } from '../domain/filters';
 import { priceFoundAt } from '../domain/offer';
 import { selfConnectWarning } from '../domain/self-connect';
 import { groupOffersByDestination } from '../domain/present-offers';
@@ -157,12 +158,21 @@ function gapClass(gapRatio: number | null): string {
 }
 
 function connectLine(offer: FlightOffer): HTMLElement | null {
-  if (!offer.selfConnect) return null;
+  const text = offerWarning(offer);
+  if (!text) return null;
   const line = document.createElement('p');
   line.className = 'offer__warn';
-  const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
-  line.textContent = selfConnectWarning(hub);
+  line.textContent = text;
   return line;
+}
+
+function offerWarning(offer: FlightOffer): string | null {
+  if (offer.selfConnect) {
+    const hub = placeOf(offer.selfConnect.hub)?.city ?? offer.selfConnect.hub;
+    return selfConnectWarning(hub);
+  }
+  if (offer.anyDate) return anyDateWarning();
+  return null;
 }
 
 function foundLine(offer: FlightOffer): HTMLElement | null {

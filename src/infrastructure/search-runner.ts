@@ -1,4 +1,4 @@
-// Versão: 1.4
+// Versão: 1.5
 import { freshRouteOffers } from '../domain/known-offers';
 import { toFlightOffer } from '../domain/offer';
 import { buildSearchPlan } from '../domain/search-plan';
@@ -62,6 +62,13 @@ interface FetchOutcome {
   status?: 'stopped' | 'error';
   message: string | null;
   reused: boolean;
+  apiCalls: number;
+}
+
+interface CollectedTickets {
+  tickets: RawTicket[];
+  anyDate: boolean;
+  apiCalls: number;
 }
 
 export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
@@ -85,7 +92,7 @@ export async function runSearch(options: RunSearchOptions): Promise<RunResult> {
     });
     const before = kept.length;
     const outcome = await fetchPair(options, pair.destination, pair.month, kept, seen);
-    if (!outcome.reused) requestCount += 1;
+    requestCount += outcome.apiCalls;
     if (outcome.kind === 'error' && outcome.message) {
       errors.push({ destination: pair.destination, month: pair.month, message: outcome.message });
     }
@@ -104,7 +111,7 @@ async function collectTickets(
   options: RunSearchOptions,
   destination: string,
   month: string,
-): Promise<RawTicket[]> {
+): Promise<CollectedTickets> {
   const query = {
     token: options.token,
     origin: options.criteria.originIata,
@@ -114,8 +121,31 @@ async function collectTickets(
     includeRegularPrices: true,
   };
   const listed = await options.provider.searchRouteMonth(query);
-  if (listed.length > 0 || !options.provider.searchCalendarMonth) return listed;
-  return options.provider.searchCalendarMonth(query);
+  if (listed.length > 0) return { tickets: listed, anyDate: false, apiCalls: 1 };
+  let apiCalls = 1;
+  if (options.provider.searchCalendarMonth) {
+    const calendar = await options.provider.searchCalendarMonth(query);
+    apiCalls += 1;
+    if (calendar.length > 0) return { tickets: calendar, anyDate: false, apiCalls };
+  }
+  const fallback = await readAnyDate(options, destination);
+  if (!fallback.ticket) return { tickets: [], anyDate: false, apiCalls: apiCalls + fallback.calls };
+  return { tickets: [fallback.ticket], anyDate: true, apiCalls: apiCalls + fallback.calls };
+}
+
+async function readAnyDate(
+  options: RunSearchOptions,
+  destination: string,
+): Promise<{ ticket: RawTicket | null; calls: number }> {
+  if (!options.provider.searchCheapest) return { ticket: null, calls: 0 };
+  await options.sleep(Math.max(2, options.criteria.delayBetweenCallsSeconds) * 1000, options.signal);
+  const ticket = await options.provider.searchCheapest({
+    token: options.token,
+    origin: options.criteria.originIata,
+    destination,
+    signal: options.signal,
+  });
+  return { ticket, calls: 1 };
 }
 
 async function fetchPair(
@@ -135,12 +165,16 @@ async function fetchPair(
   );
   if (local.length > 0) {
     keepNew(local, kept, seen);
-    return { kind: 'ok', message: null, reused: true };
+    return { kind: 'ok', message: null, reused: true, apiCalls: 0 };
   }
   try {
-    const tickets = await collectTickets(options, destination, month);
-    keepNew(tickets.map((ticket) => toFlightOffer(ticket, options.now())), kept, seen);
-    return { kind: 'ok', message: null, reused: false };
+    const collected = await collectTickets(options, destination, month);
+    const offers = collected.tickets.map((ticket) => toFlightOffer(ticket, options.now()));
+    if (collected.anyDate) {
+      for (const offer of offers) offer.anyDate = true;
+    }
+    keepNew(offers, kept, seen);
+    return { kind: 'ok', message: null, reused: false, apiCalls: collected.apiCalls };
   } catch (error) {
     return outcomeFromError(error);
   }
@@ -155,12 +189,12 @@ function keepNew(offers: readonly FlightOffer[], kept: FlightOffer[], seen: Set<
 }
 
 function outcomeFromError(error: unknown): FetchOutcome {
-  if (isAbortError(error)) return { kind: 'stop', status: 'stopped', message: null, reused: false };
+  if (isAbortError(error)) return { kind: 'stop', status: 'stopped', message: null, reused: false, apiCalls: 1 };
   if (isTravelpayoutsError(error) && FATAL.has(error.code)) {
-    return { kind: 'stop', status: 'error', message: error.message, reused: false };
+    return { kind: 'stop', status: 'error', message: error.message, reused: false, apiCalls: 1 };
   }
   const message = isTravelpayoutsError(error) ? error.message : 'Falha ao consultar esta rota.';
-  return { kind: 'error', message, reused: false };
+  return { kind: 'error', message, reused: false, apiCalls: 1 };
 }
 
 async function pauseBeforeNext(
